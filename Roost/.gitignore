@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+.next/
+.env
+.env.local
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+.mockMailbox.json
+.landlordAutoResponderState.json
+packages/orchestrator/data/intentModel.json
+packages/orchestrator/data/concessionModel.json
+packages/orchestrator/data/.test.sqlite*
+*.log
+.DS_Store
