@@ -35,6 +35,12 @@ const STATE_PATH = join(__dirname, "..", "..", "data", ".clientIntakeState.json"
 const DEFAULT_FALLBACK_AREA = "Koramangala";
 const SHORTLIST_SIZE = 3;
 
+// See the matching constant/comment in stateMachine.ts — Gmail's search
+// index lags actual delivery by a few seconds, so jumping the cursor
+// straight to "now" every cycle can permanently skip a message that
+// wasn't indexed yet at poll time. Keep a minute of overlap.
+const POLL_SAFETY_BUFFER_MS = 60_000;
+
 interface IntakeThreadState {
   status: "awaiting_requirements" | "processed";
   dealId?: string;
@@ -282,7 +288,7 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
     handled++;
   }
 
-  state.lastPolledAt = nowTimestamp;
+  state.lastPolledAt = nowTimestamp - POLL_SAFETY_BUFFER_MS;
   saveState(state);
   return { handled };
 }

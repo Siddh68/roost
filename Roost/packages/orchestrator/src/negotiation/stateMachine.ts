@@ -58,6 +58,14 @@ import { getDealClientThread, setPendingPriceChange } from "../db/clientThreadRe
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONCESSION_MODEL_PATH = join(__dirname, "..", "..", "data", "concessionModel.json");
 
+// Gmail's search index can lag a few seconds behind actual delivery — a
+// poll cursor that jumps straight to "now" every cycle can race past a
+// message that hasn't been indexed yet and never see it again. Keeping the
+// cursor a minute behind wall-clock time gives every message a full extra
+// poll cycle of overlap to show up in, at the cost of nothing since
+// already-handled messages/threads are safely no-ops on a re-check.
+const POLL_SAFETY_BUFFER_MS = 60_000;
+
 let concessionModel: ConcessionModel | null = null;
 function getConcessionModel(): ConcessionModel {
   if (!concessionModel) {
@@ -178,7 +186,7 @@ export async function pollAcceptedThreads(dealId: string): Promise<number> {
       threadIds: [thread.id],
       sinceTimestamp: previousPolledAt,
     });
-    await updateThread(thread.id, { lastPolledAt: Date.now() });
+    await updateThread(thread.id, { lastPolledAt: Date.now() - POLL_SAFETY_BUFFER_MS });
     if (newMessages.length === 0) continue;
 
     const listing = getListingOrThrow(thread.listingId);
@@ -328,7 +336,7 @@ async function pollThread(deal: Deal, thread: NegotiationThread): Promise<boolea
     sinceTimestamp: thread.lastPolledAt,
   });
 
-  await updateThread(thread.id, { lastPolledAt: Date.now() });
+  await updateThread(thread.id, { lastPolledAt: Date.now() - POLL_SAFETY_BUFFER_MS });
   if (newMessages.length === 0) return false;
 
   const listing = getListingOrThrow(thread.listingId);
