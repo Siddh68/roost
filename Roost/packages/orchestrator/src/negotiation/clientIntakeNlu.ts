@@ -20,10 +20,10 @@ function extractTeamSize(text: string): number | null {
     return Math.round((lo + hi) / 2);
   }
   const single = text.match(
-    /(?:team size|team of|headcount|seats?(?: needed)?)\s*[:\-]?\s*(\d{1,4})/i
+    /(?:team size|team of|company of|headcount|seats?(?: needed)?)\s*[:\-]?\s*(\d{1,4})/i
   );
   if (single) return Number(single[1]);
-  const fallback = text.match(/(\d{1,4})\s*(?:members|people|employees|person)/i);
+  const fallback = text.match(/(\d{1,4})\s*(?:members|people|employees|person|of us|seats?)/i);
   if (fallback) return Number(fallback[1]);
   return null;
 }
