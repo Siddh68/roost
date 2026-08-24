@@ -247,11 +247,20 @@ async function checkInboxReal(args: CheckInboxArgs): Promise<InboxMessage[]> {
     }
   } else {
     // Discovery mode: scan the recent inbox for new threads not yet tracked
-    // (used by the landlord test auto-responder, which has no thread registry).
+    // (used by the landlord auto-responder and the client-intake poller,
+    // neither of which have a thread registry yet at this point). A plain
+    // maxResults cap with client-side date filtering silently misses
+    // anything older than the N most recent inbox messages — on a real,
+    // busy personal inbox (not a clean test mailbox), unrelated traffic
+    // pushes genuine client/landlord replies out of that window within
+    // hours. Gmail's `after:` search operator filters server-side by date
+    // instead, so nothing gets missed regardless of inbox volume.
+    const afterSeconds = Math.floor(args.sinceTimestamp / 1000);
     const list = await gmail.users.messages.list({
       userId: "me",
       labelIds: ["INBOX"],
-      maxResults: 50,
+      q: `after:${afterSeconds}`,
+      maxResults: 100,
     });
 
     // Fetch metadata for all candidates in parallel — sequential awaits here

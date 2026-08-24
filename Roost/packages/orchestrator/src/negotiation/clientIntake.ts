@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 import { sendEmail, checkInbox, readThread } from "@roost/mcp-server/tools/emailAgent";
 import { scoreListing } from "@roost/mcp-server/tools/scoreListing";
 import { getOrCreateClientProfile, createCompanyProfile, createDeal, listDealsByUser } from "../db/store.js";
-import { clientShortlistEmail, clientFollowUpAckEmail } from "./emailTemplates.js";
+import { clientShortlistEmail, clientFollowUpAckEmail, clientRequirementsPromptEmail } from "./emailTemplates.js";
 import { startOutreach } from "./stateMachine.js";
 import { recordDealClientThread, updateLastClientMessageId } from "../db/clientThreadRegistry.js";
 
@@ -102,8 +102,23 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
     const parsed = parseClientIntake(latest.body, DEFAULT_FALLBACK_AREA);
 
     if (!parsed.profile) {
+      // Cold "I'm interested" messages, questions, anything we can't turn
+      // into a profile yet — always reply asking for what's missing,
+      // never go silent. Covers both the very first message on a new
+      // thread and a repeat reply that still didn't include everything.
+      const sent = await sendEmail({
+        account: "agent",
+        to: senderEmail,
+        cc: latest.cc,
+        subject: `Re: ${latest.subject}`,
+        body: clientRequirementsPromptEmail(parsed.missingFields),
+        threadId: message.threadId,
+        inReplyToMessageId: latest.messageId,
+      });
+      if (existing?.dealId) updateLastClientMessageId(existing.dealId, sent.messageId);
       state.threads[message.threadId] = { status: "awaiting_requirements" };
-      continue; // don't nag on every field we can't parse — the original ask already covers this
+      handled++;
+      continue;
     }
 
     const client = await getOrCreateClientProfile(senderEmail, senderName);

@@ -180,6 +180,31 @@ Best,
 The Roost team`;
 }
 
+/** Sent to any new inbound client email we can't parse a usable profile from — a cold "I'm interested" message, missing budget/team size, etc. Always replies rather than going silent. */
+export function clientRequirementsPromptEmail(missingFields: string[]): string {
+  const fieldsLine =
+    missingFields.length > 0
+      ? `Specifically, we still need: ${missingFields.join(", ")}.`
+      : "";
+  return `Hi,
+
+Thanks for reaching out to Roost — we're an AI-driven office search agent that finds, scores, and negotiates commercial lease terms on a company's behalf.
+
+To put together a shortlist for you, could you share:
+
+- Team size (how many seats you need)
+- Monthly budget
+- Preferred area / neighborhood
+- Any must-haves (metro proximity, parking, furnished, cab access)
+
+${fieldsLine}
+
+Once we have that, we'll search available listings, rank them by fit, and start reaching out to landlords on your behalf.
+
+Best,
+The Roost team`;
+}
+
 export function closedLostEmail(listing: Listing): string {
   return `Hi ${listing.landlordName},
 
