@@ -180,6 +180,66 @@ Best,
 The Roost team`;
 }
 
+/** Sent to the landlord while we check a post-acceptance price change with the client — buys time without silently accepting or refusing. */
+export function priceChangeHoldingReplyEmail(listing: Listing): string {
+  return `Hi ${listing.landlordName},
+
+Thanks for letting us know — we'll check with our client on the revised number and confirm shortly.
+
+Best,
+The Roost team`;
+}
+
+/** Sent to the landlord when a post-acceptance price demand exceeds the client's hard budget ceiling — never crossed, no exceptions, no client check needed. */
+export function priceChangeOverBudgetEmail(args: {
+  listing: Listing;
+  previousPriceInr: number;
+}): string {
+  return `Hi ${args.listing.landlordName},
+
+We're not able to move to that number — it's outside what we can commit to for "${args.listing.title}". We'd still like to move forward at the previously agreed ${inr(args.previousPriceInr)}/month if that works on your end; otherwise we'll need to step back from this one.
+
+Best,
+The Roost team`;
+}
+
+/** Sent to the client when a landlord asks to change the price after acceptance — the deal isn't unilaterally re-confirmed at a worse number without asking first. */
+export function priceChangeConfirmationToClientEmail(args: {
+  listing: Listing;
+  newPriceInr: number;
+  previousPriceInr: number;
+}): string {
+  const { listing, newPriceInr, previousPriceInr } = args;
+  return `Hi,
+
+Quick update on "${listing.title}" — the landlord has come back after acceptance asking to change the rate from ${inr(previousPriceInr)}/month to ${inr(newPriceInr)}/month.
+
+Are you okay with the new number? Reply yes to confirm at ${inr(newPriceInr)}/month, or let us know if you'd rather we hold at the original ${inr(previousPriceInr)}/month or walk away.
+
+Best,
+The Roost team`;
+}
+
+/** Sent to the landlord once the client confirms they're fine with the revised price. */
+export function priceChangeConfirmedToLandlordEmail(listing: Listing, newPriceInr: number): string {
+  return `Hi ${listing.landlordName},
+
+Confirmed on our end — ${inr(newPriceInr)}/month works for "${listing.title}". Let's move forward at that rate.
+
+Best,
+The Roost team`;
+}
+
+/** Sent to the landlord when the client doesn't accept the revised price — holds at the original agreed number. */
+export function priceChangeRejectedToLandlordEmail(listing: Listing, previousPriceInr: number): string {
+  return `Hi ${listing.landlordName},
+
+We'd like to stick with the originally agreed ${inr(previousPriceInr)}/month for "${listing.title}" rather than the revised number — let us know if that still works on your end.
+
+Best,
+The Roost team`;
+}
+
 /** Sent to any new inbound client email we can't parse a usable profile from — a cold "I'm interested" message, missing budget/team size, etc. Always replies rather than going silent. */
 export function clientRequirementsPromptEmail(missingFields: string[]): string {
   const fieldsLine =

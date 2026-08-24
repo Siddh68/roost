@@ -11,10 +11,23 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { sendEmail, checkInbox, readThread } from "@roost/mcp-server/tools/emailAgent";
 import { scoreListing } from "@roost/mcp-server/tools/scoreListing";
-import { getOrCreateClientProfile, createCompanyProfile, createDeal, listDealsByUser } from "../db/store.js";
-import { clientShortlistEmail, clientFollowUpAckEmail, clientRequirementsPromptEmail } from "./emailTemplates.js";
-import { startOutreach } from "./stateMachine.js";
-import { recordDealClientThread, updateLastClientMessageId } from "../db/clientThreadRegistry.js";
+import { loadListings } from "@roost/mcp-server/tools/searchListings";
+import { getOrCreateClientProfile, createCompanyProfile, createDeal, listDealsByUser, updateThread } from "../db/store.js";
+import {
+  clientShortlistEmail,
+  clientFollowUpAckEmail,
+  clientRequirementsPromptEmail,
+  priceChangeConfirmedToLandlordEmail,
+  priceChangeRejectedToLandlordEmail,
+} from "./emailTemplates.js";
+import { startOutreach, subjectFor } from "./stateMachine.js";
+import { heuristicToneLabel } from "./ruleBasedNlu.js";
+import {
+  recordDealClientThread,
+  updateLastClientMessageId,
+  getDealClientThread,
+  clearPendingPriceChange,
+} from "../db/clientThreadRegistry.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STATE_PATH = join(__dirname, "..", "..", "data", ".clientIntakeState.json");
@@ -101,6 +114,68 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
     // follow-up, not a fresh submission. Acknowledge it so nothing goes
     // silently unanswered, but don't re-run intake or re-send outreach.
     if (existing?.status === "processed") {
+      const clientThread = existing.dealId ? getDealClientThread(existing.dealId) : null;
+      const pending = clientThread?.pendingPriceChange;
+
+      if (existing.dealId && pending) {
+        // The landlord asked to change an already-accepted price and
+        // we're waiting on exactly this: does the client agree or not.
+        const tone = heuristicToneLabel(latest.body);
+        const listing = loadListings().find((l) => l.id === pending.listingId);
+
+        if (tone === "agreement" && listing) {
+          await sendEmail({
+            account: "agent",
+            to: senderEmail,
+            cc: latest.cc,
+            subject: `Re: ${latest.subject}`,
+            body: `Confirmed — we'll let the landlord know ${pending.newPriceInr.toLocaleString("en-IN")}/month works.`,
+            threadId: message.threadId,
+            inReplyToMessageId: latest.messageId,
+          });
+          await sendEmail({
+            account: "agent",
+            to: listing.landlordEmail,
+            subject: `Re: ${subjectFor(listing)}`,
+            body: priceChangeConfirmedToLandlordEmail(listing, pending.newPriceInr),
+            threadId: pending.landlordThreadId,
+          });
+          await updateThread(pending.landlordThreadId, { currentOfferInr: pending.newPriceInr });
+          clearPendingPriceChange(existing.dealId);
+        } else if (tone === "decline" && listing) {
+          await sendEmail({
+            account: "agent",
+            to: senderEmail,
+            cc: latest.cc,
+            subject: `Re: ${latest.subject}`,
+            body: `Understood — we'll hold at the originally agreed ${pending.previousPriceInr.toLocaleString("en-IN")}/month with the landlord.`,
+            threadId: message.threadId,
+            inReplyToMessageId: latest.messageId,
+          });
+          await sendEmail({
+            account: "agent",
+            to: listing.landlordEmail,
+            subject: `Re: ${subjectFor(listing)}`,
+            body: priceChangeRejectedToLandlordEmail(listing, pending.previousPriceInr),
+            threadId: pending.landlordThreadId,
+          });
+          clearPendingPriceChange(existing.dealId);
+        } else {
+          // Couldn't tell yes/no from this reply — ask again rather than guess on a real price decision.
+          await sendEmail({
+            account: "agent",
+            to: senderEmail,
+            cc: latest.cc,
+            subject: `Re: ${latest.subject}`,
+            body: `Just to confirm — are you okay with ${pending.newPriceInr.toLocaleString("en-IN")}/month, or should we hold at the original ${pending.previousPriceInr.toLocaleString("en-IN")}/month?`,
+            threadId: message.threadId,
+            inReplyToMessageId: latest.messageId,
+          });
+        }
+        handled++;
+        continue;
+      }
+
       const sent = await sendEmail({
         account: "agent",
         to: senderEmail,

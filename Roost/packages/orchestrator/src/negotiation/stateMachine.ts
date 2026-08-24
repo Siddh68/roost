@@ -48,7 +48,12 @@ import {
   clientDealWonEmail,
   clientDealLostEmail,
   postAcceptanceAckEmail,
+  priceChangeHoldingReplyEmail,
+  priceChangeOverBudgetEmail,
+  priceChangeConfirmationToClientEmail,
 } from "./emailTemplates.js";
+import { extractPriceInr } from "./ruleBasedNlu.js";
+import { getDealClientThread, setPendingPriceChange } from "../db/clientThreadRegistry.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONCESSION_MODEL_PATH = join(__dirname, "..", "..", "data", "concessionModel.json");
@@ -85,7 +90,7 @@ function getListingOrThrow(listingId: string): Listing {
   return listing;
 }
 
-function subjectFor(listing: Listing): string {
+export function subjectFor(listing: Listing): string {
   return `Office space inquiry — ${listing.title} [ref:${listing.id}]`;
 }
 
@@ -161,16 +166,17 @@ export async function pollDealOnce(dealId: string): Promise<{ threadsWithActivit
 }
 
 /** Checks every "accepted" thread on a deal for new landlord messages and acknowledges them — keeps the conversation responsive after terms are locked instead of going silent. */
-async function pollAcceptedThreads(dealId: string): Promise<number> {
+export async function pollAcceptedThreads(dealId: string): Promise<number> {
   const threads = await getThreadsByDeal(dealId);
   const accepted = threads.filter((t) => t.status === "accepted");
   let handled = 0;
 
   for (const thread of accepted) {
+    const previousPolledAt = thread.lastPolledAt;
     const newMessages = await checkInbox({
       account: "agent",
       threadIds: [thread.id],
-      sinceTimestamp: thread.lastPolledAt,
+      sinceTimestamp: previousPolledAt,
     });
     await updateThread(thread.id, { lastPolledAt: Date.now() });
     if (newMessages.length === 0) continue;
@@ -186,11 +192,72 @@ async function pollAcceptedThreads(dealId: string): Promise<number> {
       payload: { from: latest.from, snippet: latest.body.slice(0, 160) },
     });
 
+    const deal = await getDeal(dealId);
+    // A price can be stated in one message and then followed by something
+    // short and price-free ("done", "ok", "let me know") that would
+    // otherwise bury it — scan every genuinely new incoming message this
+    // cycle (not just the last one) for the most recent price mention.
+    const newIncoming = allMessages.filter(
+      (m) => m.date > previousPolledAt && !m.from.toLowerCase().includes("siddhjain68")
+    );
+    let revisedPrice: number | null = null;
+    for (let i = newIncoming.length - 1; i >= 0; i--) {
+      revisedPrice = extractPriceInr(newIncoming[i].body);
+      if (revisedPrice != null) break;
+    }
+    const priceChanged = revisedPrice != null && revisedPrice !== thread.currentOfferInr;
+
+    let action: string;
+    let body: string;
+
+    if (priceChanged && deal && revisedPrice! > deal.companyProfile.budgetInr) {
+      // Hard ceiling — never crossed, no client check needed, decided on the spot.
+      action = "price_change_over_budget";
+      body = priceChangeOverBudgetEmail({ listing, previousPriceInr: thread.currentOfferInr });
+    } else if (priceChanged && deal) {
+      const clientThread = getDealClientThread(dealId);
+      if (clientThread) {
+        // Within budget but a real change from what was agreed — the
+        // client already got a "deal reached" email at the old number,
+        // so we ask before silently re-confirming at a different one.
+        await sendEmail({
+          account: "agent",
+          to: clientThread.clientEmail,
+          cc: clientThread.cc,
+          subject: "Landlord wants to revise the price",
+          body: priceChangeConfirmationToClientEmail({
+            listing,
+            newPriceInr: revisedPrice!,
+            previousPriceInr: thread.currentOfferInr,
+          }),
+          threadId: clientThread.threadId,
+          inReplyToMessageId: clientThread.lastMessageId,
+        });
+        setPendingPriceChange(dealId, {
+          landlordThreadId: thread.id,
+          listingId: thread.listingId,
+          newPriceInr: revisedPrice!,
+          previousPriceInr: thread.currentOfferInr,
+        });
+        action = "price_change_holding";
+        body = priceChangeHoldingReplyEmail(listing);
+      } else {
+        // No registered client thread (e.g. a CLI/dashboard-created deal)
+        // to ask — fall back to the safe generic ack rather than
+        // unilaterally accepting a different price with no one to confirm with.
+        action = "post_acceptance_ack";
+        body = postAcceptanceAckEmail(listing);
+      }
+    } else {
+      action = "post_acceptance_ack";
+      body = postAcceptanceAckEmail(listing);
+    }
+
     const sent = await sendEmail({
       account: "agent",
       to: thread.landlordEmail,
       subject: `Re: ${subjectFor(listing)}`,
-      body: postAcceptanceAckEmail(listing),
+      body,
       threadId: thread.id,
       inReplyToMessageId: latest.messageId,
     });
@@ -200,7 +267,7 @@ async function pollAcceptedThreads(dealId: string): Promise<number> {
       dealId,
       threadId: thread.id,
       type: "response_sent",
-      payload: { action: "post_acceptance_ack", body: postAcceptanceAckEmail(listing) },
+      payload: { action, body },
     });
     handled++;
   }

@@ -9,8 +9,8 @@ import type { ToneLabel } from "../ml/trainingData.js";
 /** Matches ₹1,50,000 / Rs. 150000 / INR 150000 / "150000/month" / "1.5 lakh per month" etc. */
 export function extractPriceInr(text: string): number | null {
   const patterns = [
-    /(?:₹|Rs\.?|INR)\s*([\d,]+(?:\.\d+)?)\s*(lakh|lacs?|l)?/i,
-    /([\d,]+(?:\.\d+)?)\s*(lakh|lacs?|l)?\s*(?:per\s*month|\/\s*month|pm\b|monthly)/i,
+    /(?:₹|Rs\.?|INR|rupees)\s*([\d,]+(?:\.\d+)?)\s*(lakh|lacs?|l)?/i,
+    /([\d,]+(?:\.\d+)?)\s*(lakh|lacs?|l)?\s*(?:per\s*month|\/\s*month|pm\b|monthly|rupees)/i,
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
