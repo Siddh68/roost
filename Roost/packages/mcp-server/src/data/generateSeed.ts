@@ -2,11 +2,12 @@
 // Run with: npm run gen:seed --workspace=packages/mcp-server
 // Deterministic (seeded PRNG) so the output is reproducible/diffable.
 
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { config } from "dotenv";
-import type { Listing } from "../types.js";
+import type { Listing, MetroStation } from "../types.js";
+import { haversineKm, walkingMinutesFromKm } from "../scoring/scoreEngine.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -107,16 +108,49 @@ function jitterCoord(lat: number, lng: number, radiusKm: number) {
   return { lat: +(lat + dLat).toFixed(6), lng: +(lng + dLng).toFixed(6) };
 }
 
+// Denser/tech-corridor areas — reused as a proxy for both cab availability
+// and how many cafes/restaurants tend to cluster nearby.
+const HIGH_FOOTFALL_AREAS = ["Koramangala", "Indiranagar", "MG Road", "HSR Layout", "Whitefield", "Domlur", "Bellandur"];
+
 function cabAvailabilityFor(area: string): "high" | "medium" | "low" {
-  // Denser/tech-corridor areas get better cab availability on average.
-  const highDensity = ["Koramangala", "Indiranagar", "MG Road", "HSR Layout", "Whitefield", "Domlur", "Bellandur"];
   const roll = rand();
-  if (highDensity.includes(area)) return roll < 0.7 ? "high" : roll < 0.95 ? "medium" : "low";
+  if (HIGH_FOOTFALL_AREAS.includes(area)) return roll < 0.7 ? "high" : roll < 0.95 ? "medium" : "low";
   const roll2 = rand();
   return roll2 < 0.35 ? "high" : roll2 < 0.8 ? "medium" : "low";
 }
 
-function generateListings(): Listing[] {
+function nearbyCafesRestaurantsFor(area: string): number {
+  return HIGH_FOOTFALL_AREAS.includes(area) ? randInt(8, 25) : randInt(2, 12);
+}
+
+function parkingTypeFor(): "free" | "paid" | "reserved" | "none" {
+  if (rand() < 0.45) return "none"; // ~55% have some form of parking, matching prior boolean rate
+  const roll = rand();
+  if (roll < 0.4) return "free";
+  if (roll < 0.8) return "paid";
+  return "reserved";
+}
+
+function nearestStationWalkingMinutes(lat: number, lng: number, stations: MetroStation[]): number {
+  if (stations.length === 0) return 0;
+  let min = Infinity;
+  for (const station of stations) {
+    const d = haversineKm(lat, lng, station.lat, station.lng);
+    if (d < min) min = d;
+  }
+  return walkingMinutesFromKm(min);
+}
+
+function loadExistingStations(): MetroStation[] {
+  try {
+    const raw = readFileSync(join(__dirname, "metroStations.seed.json"), "utf-8");
+    return JSON.parse(raw) as MetroStation[];
+  } catch {
+    return [];
+  }
+}
+
+function generateListings(stations: MetroStation[]): Listing[] {
   const listings: Listing[] = [];
   let counter = 1;
 
@@ -136,7 +170,7 @@ function generateListings(): Listing[] {
         monthlyRentInr,
         seats,
         furnished: rand() < 0.65,
-        parking: rand() < 0.55,
+        parkingType: parkingTypeFor(),
         cabAvailability: cabAvailabilityFor(area),
         floor: randInt(1, 15),
         description: pick(DESCRIPTION_TEMPLATES)(area, seats),
@@ -144,6 +178,13 @@ function generateListings(): Listing[] {
         landlordEmail: DEMO_LANDLORD_EMAIL,
         landlordName: pick(LANDLORD_NAMES),
         contactPersona: rand() < 0.8 ? pick(CONTACT_PERSONAS) : undefined,
+        nearbyCafesRestaurants: nearbyCafesRestaurantsFor(area),
+        walkingTimeToStationMinutes: nearestStationWalkingMinutes(jLat, jLng, stations),
+        coffeeMachine: rand() < 0.5,
+        cafeteriaOnSite: rand() < 0.25,
+        meetingRooms: rand() < 0.7,
+        access24x7: rand() < 0.35,
+        highSpeedInternet: rand() < 0.85,
       };
 
       listings.push(listing);
@@ -155,7 +196,8 @@ function generateListings(): Listing[] {
 }
 
 function main() {
-  const listings = generateListings();
+  const stations = loadExistingStations();
+  const listings = generateListings(stations);
   const outPath = join(__dirname, "listings.seed.json");
   writeFileSync(outPath, JSON.stringify(listings, null, 2) + "\n", "utf-8");
   console.log(`Generated ${listings.length} listings across ${AREAS.length} areas -> ${outPath}`);

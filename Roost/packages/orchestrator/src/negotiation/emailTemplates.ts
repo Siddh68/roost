@@ -18,7 +18,7 @@ export function outreachEmail(listing: Listing, profile: CompanyProfile, opening
   const greeting = pick([`Hi ${listing.landlordName},`, `Hello ${listing.landlordName},`]);
   const amenities = [
     listing.furnished ? "furnished" : null,
-    listing.parking ? "parking available" : null,
+    listing.parkingType !== "none" ? `${listing.parkingType} parking available` : null,
   ]
     .filter(Boolean)
     .join(", ");
@@ -86,7 +86,7 @@ The Roost team`;
 export function answerInfoEmail(listing: Listing, profile: CompanyProfile): string {
   const amenities = [
     listing.furnished ? "the space is furnished" : "the space is unfurnished",
-    listing.parking ? "parking is available" : "no dedicated parking",
+    listing.parkingType !== "none" ? `${listing.parkingType} parking is available` : "no dedicated parking",
     `it's on floor ${listing.floor}`,
   ].join("; ");
 
@@ -165,6 +165,16 @@ export function clientFollowUpAckEmail(): string {
   return `Hi,
 
 Thanks for the note — we've already kicked off outreach to the landlords on your shortlist and are tracking replies. We'll update you the moment there's movement (an acceptance, a counter, or if we need a decision from you).
+
+Best,
+The Roost team`;
+}
+
+/** Sent to a landlord who messages again after terms are already accepted — keeps the thread alive for lease/next-step logistics without re-negotiating. */
+export function postAcceptanceAckEmail(listing: Listing): string {
+  return `Hi ${listing.landlordName},
+
+Thanks for the note — good to keep this moving on "${listing.title}". We'll have someone from our side follow up shortly on the lease paperwork and next steps.
 
 Best,
 The Roost team`;

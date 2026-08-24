@@ -55,6 +55,12 @@ function nearestMetroDistanceKm(
   return min;
 }
 
+/** ~80m/min average walking speed — matches the seed-generation-time calc. */
+export function walkingMinutesFromKm(distanceKm: number): number {
+  if (!Number.isFinite(distanceKm)) return 0;
+  return Math.max(1, Math.round((distanceKm * 1000) / 80));
+}
+
 /**
  * Market rate (₹/seat/month) per area, computed from raw seats — not
  * team-size-adjusted. Used as the comparison baseline for cost efficiency.
@@ -108,9 +114,9 @@ function scoreCostEfficiency(
 function scoreCommute(
   listing: Listing,
   stations: MetroStation[]
-): { score: number; distanceKm: number; nearestStation: string | null } {
+): { score: number; distanceKm: number; nearestStation: string | null; walkingTimeMinutes: number } {
   if (stations.length === 0) {
-    return { score: 50, distanceKm: Infinity, nearestStation: null };
+    return { score: 50, distanceKm: Infinity, nearestStation: null, walkingTimeMinutes: 0 };
   }
 
   let nearest: MetroStation = stations[0];
@@ -145,18 +151,16 @@ function scoreCommute(
       : -5;
 
   const score = clamp(distanceScore + cabModifier, 0, 100);
-  return { score, distanceKm: min, nearestStation: nearest.name };
+  return { score, distanceKm: min, nearestStation: nearest.name, walkingTimeMinutes: walkingMinutesFromKm(min) };
 }
 
 function scoreAmenityFit(
   listing: Listing,
   profile: CompanyProfile,
-  nearestMetroDistanceKmValue: number
-): { score: number; satisfied: string[]; missing: string[] } {
+  nearestMetroDistanceKmValue: number,
+  walkingTimeMinutes: number
+): { score: number; satisfied: string[]; missing: string[]; richnessCount: number } {
   const mustHaves = profile.mustHaves ?? [];
-  if (mustHaves.length === 0) {
-    return { score: 100, satisfied: [], missing: [] };
-  }
 
   const satisfied: string[] = [];
   const missing: string[] = [];
@@ -171,25 +175,58 @@ function scoreAmenityFit(
         met = listing.cabAvailability === "high" || listing.cabAvailability === "medium";
         break;
       case "parking":
-        met = listing.parking;
+        met = listing.parkingType !== "none";
         break;
       case "furnished":
         met = listing.furnished;
+        break;
+      case "meetingRooms":
+        met = listing.meetingRooms;
+        break;
+      case "access24x7":
+        met = listing.access24x7;
+        break;
+      case "highSpeedInternet":
+        met = listing.highSpeedInternet;
         break;
     }
     if (met) satisfied.push(need);
     else missing.push(need);
   }
 
-  const score = (satisfied.length / mustHaves.length) * 100;
-  return { score, satisfied, missing };
+  const mustHaveScore = mustHaves.length > 0 ? (satisfied.length / mustHaves.length) * 100 : 100;
+
+  // Amenity richness: how well-equipped the space is beyond the explicit
+  // must-haves — rewards furnished + free/paid/reserved parking, on-site
+  // perks, and a short walk to transit; used to differentiate listings even
+  // when a profile has no (or only a few) hard must-haves.
+  const richnessSignals = [
+    listing.furnished,
+    listing.parkingType !== "none",
+    listing.coffeeMachine,
+    listing.cafeteriaOnSite,
+    listing.meetingRooms,
+    listing.access24x7,
+    listing.highSpeedInternet,
+  ];
+  const richnessCount = richnessSignals.filter(Boolean).length;
+  let richnessScore = (richnessCount / richnessSignals.length) * 100;
+  if (walkingTimeMinutes <= 8) richnessScore = clamp(richnessScore + 8, 0, 100);
+  else if (walkingTimeMinutes >= 20) richnessScore = clamp(richnessScore - 8, 0, 100);
+
+  const score =
+    mustHaves.length > 0
+      ? clamp(mustHaveScore * 0.7 + richnessScore * 0.3, 0, 100)
+      : richnessScore;
+
+  return { score, satisfied, missing, richnessCount };
 }
 
 function buildReasoning(
   listing: Listing,
   breakdown: ScoreBreakdown,
   cost: { costPerNeededSeat: number; costRatio: number },
-  commute: { distanceKm: number; nearestStation: string | null },
+  commute: { distanceKm: number; nearestStation: string | null; walkingTimeMinutes: number },
   amenity: { satisfied: string[]; missing: string[] }
 ): string {
   const parts: string[] = [];
@@ -206,7 +243,7 @@ function buildReasoning(
 
   if (commute.nearestStation) {
     parts.push(
-      `${commute.distanceKm.toFixed(1)}km from ${commute.nearestStation} metro`
+      `${commute.distanceKm.toFixed(1)}km (${commute.walkingTimeMinutes} min walk) from ${commute.nearestStation} metro`
     );
   }
 
@@ -214,6 +251,21 @@ function buildReasoning(
     parts.push(`missing: ${amenity.missing.join(", ")}`);
   } else if (amenity.satisfied.length > 0) {
     parts.push(`meets all must-haves (${amenity.satisfied.join(", ")})`);
+  }
+
+  const highlights: string[] = [];
+  if (listing.parkingType !== "none") highlights.push(`${listing.parkingType} parking`);
+  if (listing.meetingRooms) highlights.push("meeting rooms");
+  if (listing.coffeeMachine) highlights.push("coffee machine");
+  if (listing.cafeteriaOnSite) highlights.push("on-site cafeteria");
+  if (listing.access24x7) highlights.push("24/7 access");
+  if (listing.highSpeedInternet) highlights.push("high-speed internet");
+  if (highlights.length > 0) {
+    parts.push(`amenities: ${highlights.slice(0, 3).join(", ")}`);
+  }
+
+  if (listing.nearbyCafesRestaurants > 0) {
+    parts.push(`${listing.nearbyCafesRestaurants} cafes/restaurants nearby`);
   }
 
   return parts.join("; ") + ".";
@@ -230,7 +282,7 @@ export function scoreListing(
 
   const cost = scoreCostEfficiency(listing, profile.teamSize, areaMedianRate);
   const commute = scoreCommute(listing, stations);
-  const amenity = scoreAmenityFit(listing, profile, commute.distanceKm);
+  const amenity = scoreAmenityFit(listing, profile, commute.distanceKm, commute.walkingTimeMinutes);
 
   const breakdown: ScoreBreakdown = {
     costEfficiency: Math.round(cost.score * 10) / 10,

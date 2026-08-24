@@ -47,6 +47,7 @@ import {
   closedLostEmail,
   clientDealWonEmail,
   clientDealLostEmail,
+  postAcceptanceAckEmail,
 } from "./emailTemplates.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -150,7 +151,61 @@ export async function pollDealOnce(dealId: string): Promise<{ threadsWithActivit
   if (threadsWithActivity > 0) {
     await notifyClientOnResolution(dealId, statusBefore);
   }
+
+  // Terms being accepted doesn't mean the landlord stops emailing — lease
+  // logistics, follow-up questions, etc. keep coming. Without this, any
+  // message on an "accepted" thread was silently dropped forever.
+  threadsWithActivity += await pollAcceptedThreads(dealId);
+
   return { threadsWithActivity };
+}
+
+/** Checks every "accepted" thread on a deal for new landlord messages and acknowledges them — keeps the conversation responsive after terms are locked instead of going silent. */
+async function pollAcceptedThreads(dealId: string): Promise<number> {
+  const threads = await getThreadsByDeal(dealId);
+  const accepted = threads.filter((t) => t.status === "accepted");
+  let handled = 0;
+
+  for (const thread of accepted) {
+    const newMessages = await checkInbox({
+      account: "agent",
+      threadIds: [thread.id],
+      sinceTimestamp: thread.lastPolledAt,
+    });
+    await updateThread(thread.id, { lastPolledAt: Date.now() });
+    if (newMessages.length === 0) continue;
+
+    const listing = getListingOrThrow(thread.listingId);
+    const allMessages = await readThread({ account: "agent", threadId: thread.id });
+    const latest = allMessages[allMessages.length - 1];
+
+    await appendTranscript({
+      dealId,
+      threadId: thread.id,
+      type: "reply_received",
+      payload: { from: latest.from, snippet: latest.body.slice(0, 160) },
+    });
+
+    const sent = await sendEmail({
+      account: "agent",
+      to: thread.landlordEmail,
+      subject: `Re: ${subjectFor(listing)}`,
+      body: postAcceptanceAckEmail(listing),
+      threadId: thread.id,
+      inReplyToMessageId: latest.messageId,
+    });
+    await updateThread(thread.id, { lastMessageId: sent.messageId });
+
+    await appendTranscript({
+      dealId,
+      threadId: thread.id,
+      type: "response_sent",
+      payload: { action: "post_acceptance_ack", body: postAcceptanceAckEmail(listing) },
+    });
+    handled++;
+  }
+
+  return handled;
 }
 
 /**

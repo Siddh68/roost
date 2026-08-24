@@ -210,8 +210,24 @@ export default function ShortlistClient({
               <p className="text-xs text-[var(--text-secondary)]">
                 {s.listing.area} · {s.listing.seats} seats · floor {s.listing.floor}
                 {s.listing.furnished ? " · furnished" : ""}
-                {s.listing.parking ? " · parking" : ""}
+                {s.listing.parkingType !== "none" ? ` · ${s.listing.parkingType} parking` : ""}
               </p>
+              <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
+                {s.listing.walkingTimeToStationMinutes} min walk to nearest station · {s.listing.nearbyCafesRestaurants} cafes/restaurants nearby
+              </p>
+              {(s.listing.coffeeMachine ||
+                s.listing.cafeteriaOnSite ||
+                s.listing.meetingRooms ||
+                s.listing.access24x7 ||
+                s.listing.highSpeedInternet) && (
+                <p className="mt-1 flex flex-wrap gap-1">
+                  {s.listing.coffeeMachine && <span className="amenity-badge">Coffee machine</span>}
+                  {s.listing.cafeteriaOnSite && <span className="amenity-badge">On-site cafeteria</span>}
+                  {s.listing.meetingRooms && <span className="amenity-badge">Meeting rooms</span>}
+                  {s.listing.access24x7 && <span className="amenity-badge">24/7 access</span>}
+                  {s.listing.highSpeedInternet && <span className="amenity-badge">High-speed internet</span>}
+                </p>
+              )}
               <p className="mt-1 text-xs text-[var(--text-secondary)]">{s.listing.description}</p>
 
               <div className="mt-3 grid max-w-sm grid-cols-1 gap-1">
@@ -257,6 +273,14 @@ export default function ShortlistClient({
           padding: 0.4rem 0.6rem;
           font-size: 0.8rem;
           color: var(--text-primary);
+        }
+        .amenity-badge {
+          border-radius: 9999px;
+          border: 1px solid var(--border);
+          background: var(--surface-raised);
+          padding: 0.1rem 0.5rem;
+          font-size: 0.65rem;
+          color: var(--text-secondary);
         }
       `}</style>
     </div>

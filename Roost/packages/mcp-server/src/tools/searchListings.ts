@@ -37,9 +37,12 @@ export function searchListings(query: SearchListingsQuery = {}): Listing[] {
     }
     if (query.mustHaves) {
       for (const need of query.mustHaves) {
-        if (need === "parking" && !listing.parking) return false;
+        if (need === "parking" && listing.parkingType === "none") return false;
         if (need === "furnished" && !listing.furnished) return false;
         if (need === "cab" && listing.cabAvailability === "low") return false;
+        if (need === "meetingRooms" && !listing.meetingRooms) return false;
+        if (need === "access24x7" && !listing.access24x7) return false;
+        if (need === "highSpeedInternet" && !listing.highSpeedInternet) return false;
         // "metro" proximity is a scoring concern (needs distance calc),
         // not a hard filter here — left to scoreListing.
       }

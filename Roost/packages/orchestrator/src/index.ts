@@ -198,7 +198,10 @@ async function main(): Promise<void> {
       for (;;) {
         try {
           const deals = await listAllDeals();
-          const active = deals.filter((d) => d.status === "NEGOTIATING");
+          // WON deals still need polling — accepted threads keep getting
+          // real landlord messages (lease logistics, follow-ups) that
+          // pollDealOnce's pollAcceptedThreads() must keep acknowledging.
+          const active = deals.filter((d) => d.status === "NEGOTIATING" || d.status === "WON");
           let totalActivity = 0;
           for (const d of active) {
             const { threadsWithActivity } = await pollDealOnce(d.id);

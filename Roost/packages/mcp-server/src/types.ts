@@ -7,7 +7,8 @@ export interface Listing {
   monthlyRentInr: number;
   seats: number;
   furnished: boolean;
-  parking: boolean;
+  /** Replaces the old boolean `parking` flag with richer free/paid/reserved/none detail. */
+  parkingType: "free" | "paid" | "reserved" | "none";
   cabAvailability: "high" | "medium" | "low";
   floor: number;
   description: string;
@@ -15,6 +16,16 @@ export interface Listing {
   landlordEmail: string;
   landlordName: string;
   contactPersona?: string;
+  /** Count of cafes/restaurants within an easy ~300m walk of the listing. */
+  nearbyCafesRestaurants: number;
+  /** Walking time to the nearest metro/train station, derived from haversine
+   *  distance at ~80m/min average walking speed. */
+  walkingTimeToStationMinutes: number;
+  coffeeMachine: boolean;
+  cafeteriaOnSite: boolean;
+  meetingRooms: boolean;
+  access24x7: boolean;
+  highSpeedInternet: boolean;
 }
 
 export interface MetroStation {
@@ -24,7 +35,14 @@ export interface MetroStation {
   lng: number;
 }
 
-export type MustHave = "metro" | "cab" | "parking" | "furnished";
+export type MustHave =
+  | "metro"
+  | "cab"
+  | "parking"
+  | "furnished"
+  | "meetingRooms"
+  | "access24x7"
+  | "highSpeedInternet";
 
 export interface CompanyProfile {
   teamSize: number;

@@ -19,6 +19,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { Listing, MetroStation } from "../types.js";
+import { haversineKm, walkingMinutesFromKm } from "../scoring/scoreEngine.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -110,19 +111,44 @@ function jitterCoord(lat: number, lng: number, radiusKm: number) {
   return { lat: +(lat + dLat).toFixed(6), lng: +(lng + dLng).toFixed(6) };
 }
 
+// Dense, commercially-developed hubs with heavy Uber/Ola concentration —
+// reused as a proxy for both cab availability and nearby cafe/restaurant density.
+const HIGH_FOOTFALL_AREAS = [
+  "BKC", "Lower Parel", "Nariman Point", "Worli", "Andheri East",
+  "Andheri West", "Powai", "Prabhadevi",
+];
+
 function cabAvailabilityFor(area: string): "high" | "medium" | "low" {
-  // Dense, commercially-developed hubs with heavy Uber/Ola concentration.
-  const highDensity = [
-    "BKC", "Lower Parel", "Nariman Point", "Worli", "Andheri East",
-    "Andheri West", "Powai", "Prabhadevi",
-  ];
   const roll = rand();
-  if (highDensity.includes(area)) return roll < 0.7 ? "high" : roll < 0.95 ? "medium" : "low";
+  if (HIGH_FOOTFALL_AREAS.includes(area)) return roll < 0.7 ? "high" : roll < 0.95 ? "medium" : "low";
   const roll2 = rand();
   return roll2 < 0.35 ? "high" : roll2 < 0.8 ? "medium" : "low";
 }
 
-function generateMumbaiListings(startCounter: number): Listing[] {
+function nearbyCafesRestaurantsFor(area: string): number {
+  return HIGH_FOOTFALL_AREAS.includes(area) ? randInt(8, 25) : randInt(2, 12);
+}
+
+function parkingTypeFor(): "free" | "paid" | "reserved" | "none" {
+  // Parking is scarcer/pricier in Mumbai than Bengaluru — ~50% have none.
+  if (rand() < 0.5) return "none";
+  const roll = rand();
+  if (roll < 0.3) return "free";
+  if (roll < 0.75) return "paid";
+  return "reserved";
+}
+
+function nearestStationWalkingMinutes(lat: number, lng: number, stations: MetroStation[]): number {
+  if (stations.length === 0) return 0;
+  let min = Infinity;
+  for (const station of stations) {
+    const d = haversineKm(lat, lng, station.lat, station.lng);
+    if (d < min) min = d;
+  }
+  return walkingMinutesFromKm(min);
+}
+
+function generateMumbaiListings(startCounter: number, stations: MetroStation[]): Listing[] {
   const listings: Listing[] = [];
   let counter = startCounter;
 
@@ -143,7 +169,7 @@ function generateMumbaiListings(startCounter: number): Listing[] {
         monthlyRentInr,
         seats,
         furnished: rand() < 0.65,
-        parking: rand() < 0.5, // parking is scarcer/pricier in Mumbai than Bengaluru
+        parkingType: parkingTypeFor(),
         cabAvailability: cabAvailabilityFor(area),
         floor: randInt(1, 22), // Mumbai commercial towers run taller
         description: pick(DESCRIPTION_TEMPLATES)(area, seats),
@@ -151,6 +177,13 @@ function generateMumbaiListings(startCounter: number): Listing[] {
         landlordEmail: DEMO_LANDLORD_EMAIL,
         landlordName: pick(LANDLORD_NAMES),
         contactPersona: rand() < 0.8 ? pick(CONTACT_PERSONAS) : undefined,
+        nearbyCafesRestaurants: nearbyCafesRestaurantsFor(area),
+        walkingTimeToStationMinutes: nearestStationWalkingMinutes(jLat, jLng, stations),
+        coffeeMachine: rand() < 0.5,
+        cafeteriaOnSite: rand() < 0.25,
+        meetingRooms: rand() < 0.7,
+        access24x7: rand() < 0.35,
+        highSpeedInternet: rand() < 0.85,
       };
 
       listings.push(listing);
@@ -210,11 +243,17 @@ function main() {
   const existingListings: Listing[] = JSON.parse(readFileSync(listingsPath, "utf-8"));
   const existingStations: MetroStation[] = JSON.parse(readFileSync(stationsPath, "utf-8"));
 
+  // Idempotent: if this script already ran once, strip any previously
+  // appended Mumbai stations before re-adding the current definitions,
+  // so re-running doesn't duplicate entries.
+  const mumbaiStationNames = new Set(MUMBAI_STATIONS.map((s) => s.name));
+  const baseStations = existingStations.filter((s) => !mumbaiStationNames.has(s.name));
+  const combinedStations = [...baseStations, ...MUMBAI_STATIONS];
+
   const nextCounter = existingListings.length + 1;
-  const mumbaiListings = generateMumbaiListings(nextCounter);
+  const mumbaiListings = generateMumbaiListings(nextCounter, combinedStations);
 
   const combinedListings = [...existingListings, ...mumbaiListings];
-  const combinedStations = [...existingStations, ...MUMBAI_STATIONS];
 
   writeFileSync(listingsPath, JSON.stringify(combinedListings, null, 2) + "\n", "utf-8");
   writeFileSync(stationsPath, JSON.stringify(combinedStations, null, 2) + "\n", "utf-8");

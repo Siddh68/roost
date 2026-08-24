@@ -8,6 +8,9 @@ const MUST_HAVE_OPTIONS = [
   { value: "cab", label: "Cab availability" },
   { value: "parking", label: "Parking" },
   { value: "furnished", label: "Furnished" },
+  { value: "meetingRooms", label: "Meeting rooms" },
+  { value: "access24x7", label: "24/7 access" },
+  { value: "highSpeedInternet", label: "High-speed internet" },
 ] as const;
 
 const AREA_OPTIONS = [
@@ -77,25 +80,26 @@ export default function IntakePage() {
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Team size">
-            <input
-              type="number"
+            <SliderWithInput
               min={1}
-              required
+              max={200}
+              step={1}
               value={teamSize}
-              onChange={(e) => setTeamSize(Number(e.target.value))}
-              className="input"
+              onChange={setTeamSize}
             />
           </Field>
           <Field label="Monthly budget (₹)">
-            <input
-              type="number"
-              min={1000}
-              step={1000}
-              required
+            <SliderWithInput
+              min={10000}
+              max={1500000}
+              step={5000}
               value={budgetInr}
-              onChange={(e) => setBudgetInr(Number(e.target.value))}
-              className="input"
+              onChange={setBudgetInr}
+              formatValue={(v) => `₹${v.toLocaleString("en-IN")}`}
             />
+            <p className="mt-1 text-xs text-[var(--text-secondary)]">
+              Drag to explore, or type an exact figure — negotiation runs against this precise number, not a range.
+            </p>
           </Field>
         </div>
 
@@ -173,6 +177,48 @@ export default function IntakePage() {
           outline-offset: 1px;
         }
       `}</style>
+    </div>
+  );
+}
+
+function SliderWithInput({
+  min,
+  max,
+  step,
+  value,
+  onChange,
+  formatValue,
+}: {
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (v: number) => void;
+  formatValue?: (v: number) => string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={Math.min(Math.max(value, min), max)}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full accent-[var(--accent)]"
+      />
+      <input
+        type="number"
+        min={min}
+        step={step}
+        required
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="input w-28 shrink-0 text-right"
+      />
+      {formatValue && (
+        <span className="sr-only">{formatValue(value)}</span>
+      )}
     </div>
   );
 }
