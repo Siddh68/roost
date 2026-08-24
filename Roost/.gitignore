@@ -12,6 +12,8 @@ build/
 .landlordAutoResponderState.json
 packages/orchestrator/data/intentModel.json
 packages/orchestrator/data/concessionModel.json
+packages/orchestrator/data/.clientIntakeState.json
+packages/orchestrator/data/.dealClientThreads.json
 packages/orchestrator/data/.test.sqlite*
 *.log
 .DS_Store

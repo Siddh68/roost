@@ -170,6 +170,16 @@ export async function getOrCreateCliUser(): Promise<{ id: string; email: string 
   });
 }
 
+/** Lazily creates (or reuses) a Profile row for a real inbound client who emailed in directly, with no Supabase account — keyed by email since there's no auth id to key on. Powers the automated client-intake pipeline. */
+export async function getOrCreateClientProfile(email: string, name?: string | null): Promise<{ id: string; email: string }> {
+  const existing = await prisma.profile.findUnique({ where: { email }, select: { id: true, email: true } });
+  if (existing) return existing;
+  return prisma.profile.create({
+    data: { id: randomUUID(), email, name: name ?? undefined, role: "COMPANY" },
+    select: { id: true, email: true },
+  });
+}
+
 function roleForEmail(email: string): Role {
   const adminEmails = (process.env.ADMIN_EMAILS ?? "")
     .split(",")
@@ -289,6 +299,15 @@ export async function getDealOwnerUserId(dealId: string): Promise<string | null>
   return row?.companyProfile.userId ?? null;
 }
 
+/** The client's own email for a deal — used to send them progress/outcome updates as their negotiation resolves. */
+export async function getDealOwnerEmail(dealId: string): Promise<string | null> {
+  const row = await prisma.deal.findUnique({
+    where: { id: dealId },
+    select: { companyProfile: { select: { user: { select: { email: true } } } } },
+  });
+  return row?.companyProfile.user.email ?? null;
+}
+
 export async function updateDealStatus(dealId: string, status: DealStatus): Promise<void> {
   await prisma.deal.update({ where: { id: dealId }, data: { status: status as PrismaDealStatus } });
 }
@@ -326,6 +345,64 @@ export async function listAllDeals(): Promise<DealWithMeta[]> {
   }));
 }
 
+// --- admin: clients (saved searches / CompanyProfile) --------------------
+
+export interface CompanyProfileWithMeta extends SavedSearch {
+  ownerEmail: string;
+  deals: { id: string; status: DealStatus }[];
+}
+
+/** Every saved search across every user, with owner email and the deals/negotiations rolled up under it — powers the admin "Clients" tab. */
+export async function listAllCompanyProfiles(): Promise<CompanyProfileWithMeta[]> {
+  const rows = await prisma.companyProfile.findMany({
+    include: { user: true, deals: { select: { id: true, status: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    userId: row.userId,
+    label: row.label,
+    profile: profileFromRow(row),
+    createdAt: row.createdAt.getTime(),
+    ownerEmail: row.user.email,
+    deals: row.deals.map((d) => ({ id: d.id, status: d.status })),
+  }));
+}
+
+// --- admin: landlords (distinct Negotiation.landlordEmail) ----------------
+
+export interface LandlordSummary {
+  email: string;
+  threadCount: number;
+  statusCounts: Record<ThreadStatus, number>;
+  listingIds: string[];
+}
+
+/** Every distinct landlord email across all negotiations, with thread/status counts and the listings they've been contacted about — powers the admin "Landlords" tab. */
+export async function listAllLandlords(): Promise<LandlordSummary[]> {
+  const rows = await prisma.negotiation.findMany({
+    select: { landlordEmail: true, status: true, listingId: true },
+  });
+  const byEmail = new Map<string, LandlordSummary>();
+  for (const row of rows) {
+    let summary = byEmail.get(row.landlordEmail);
+    if (!summary) {
+      summary = {
+        email: row.landlordEmail,
+        threadCount: 0,
+        statusCounts: { active: 0, accepted: 0, rejected: 0, escalated: 0 },
+        listingIds: [],
+      };
+      byEmail.set(row.landlordEmail, summary);
+    }
+    summary.threadCount += 1;
+    const status = THREAD_STATUS_FROM_DB[row.status] ?? "active";
+    summary.statusCounts[status] += 1;
+    if (!summary.listingIds.includes(row.listingId)) summary.listingIds.push(row.listingId);
+  }
+  return Array.from(byEmail.values()).sort((a, b) => b.threadCount - a.threadCount);
+}
+
 // --- shortlist snapshot (what was shown/scored at outreach time) -----------
 
 export async function saveShortlistItems(
@@ -351,6 +428,7 @@ export async function createThread(args: {
   listingId: string;
   landlordEmail: string;
   askingPriceInr: number;
+  currentOfferInr?: number;
 }): Promise<NegotiationThread> {
   const row = await prisma.negotiation.create({
     data: {
@@ -359,7 +437,7 @@ export async function createThread(args: {
       listingId: args.listingId,
       landlordEmail: args.landlordEmail,
       askingPriceInr: args.askingPriceInr,
-      currentOfferInr: args.askingPriceInr,
+      currentOfferInr: args.currentOfferInr ?? args.askingPriceInr,
       status: "ACTIVE",
     },
   });

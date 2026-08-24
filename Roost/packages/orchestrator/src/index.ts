@@ -33,6 +33,7 @@ import {
   getDeal,
   getThreadsByDeal,
   getTranscript,
+  listAllDeals,
 } from "./db/store.js";
 import { startOutreach, pollDealOnce, runPollLoop } from "./negotiation/stateMachine.js";
 import {
@@ -176,13 +177,48 @@ async function main(): Promise<void> {
       await runLandlordAutoResponderLoop(intervalMs);
       break;
     }
+    case "client-intake": {
+      const { runClientIntakeLoop, pollClientIntakeOnce } = await import("./negotiation/clientIntake.js");
+      if (rest.includes("--once")) {
+        const { handled } = await pollClientIntakeOnce();
+        console.log(`Handled ${handled} new client reply(ies).`);
+        break;
+      }
+      const intervalMs = Number(process.env.CLIENT_INTAKE_INTERVAL_MS ?? 20000);
+      await runClientIntakeLoop(intervalMs);
+      break;
+    }
+    case "poll-all": {
+      // Polls every NEGOTIATING deal each cycle — unlike `poll <dealId>`,
+      // this picks up new deals as client-intake creates them, so both
+      // sides (client replies, landlord replies) stay fully automated
+      // without needing to manually start a poll loop per deal.
+      const intervalMs = Number(process.env.POLL_INTERVAL_MS ?? 20000);
+      console.log(`Polling all active deals every ${intervalMs}ms (Ctrl+C to stop)...`);
+      for (;;) {
+        try {
+          const deals = await listAllDeals();
+          const active = deals.filter((d) => d.status === "NEGOTIATING");
+          let totalActivity = 0;
+          for (const d of active) {
+            const { threadsWithActivity } = await pollDealOnce(d.id);
+            totalActivity += threadsWithActivity;
+          }
+          if (totalActivity > 0) console.log(`[poll-all] ${totalActivity} thread(s) had activity across ${active.length} deal(s).`);
+        } catch (err) {
+          console.error("[poll-all] poll error:", err);
+        }
+        await new Promise((r) => setTimeout(r, intervalMs));
+      }
+    }
     default:
       console.log(
-        "Usage: tsx src/index.ts <demo|outreach|poll|landlord-responder> [args]\n" +
+        "Usage: tsx src/index.ts <demo|outreach|poll|landlord-responder|client-intake> [args]\n" +
           "  demo [profile.json] [--fresh]\n" +
           "  outreach [profile.json]\n" +
           "  poll <dealId>\n" +
-          "  landlord-responder"
+          "  landlord-responder\n" +
+          "  client-intake [--once]"
       );
   }
 }

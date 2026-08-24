@@ -45,6 +45,8 @@ import {
   counterEmail,
   answerInfoEmail,
   closedLostEmail,
+  clientDealWonEmail,
+  clientDealLostEmail,
 } from "./emailTemplates.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -97,7 +99,8 @@ export async function startOutreach(dealId: string, listingIds: string[]): Promi
 
   for (const listingId of listingIds) {
     const listing = getListingOrThrow(listingId);
-    const body = outreachEmail(listing, profile);
+    const openingOfferInr = openingCounterPriceInr(listing.monthlyRentInr, profile);
+    const body = outreachEmail(listing, profile, openingOfferInr);
     const subject = subjectFor(listing);
     const { threadId, messageId } = await sendEmail({
       account: "agent",
@@ -112,6 +115,7 @@ export async function startOutreach(dealId: string, listingIds: string[]): Promi
       listingId,
       landlordEmail: listing.landlordEmail,
       askingPriceInr: listing.monthlyRentInr,
+      currentOfferInr: openingOfferInr,
     });
 
     await appendTranscript({
@@ -141,8 +145,58 @@ export async function pollDealOnce(dealId: string): Promise<{ threadsWithActivit
     if (didAct) threadsWithActivity++;
   }
 
+  const statusBefore = deal.status;
   await reconcileDealStatus(dealId);
+  if (threadsWithActivity > 0) {
+    await notifyClientOnResolution(dealId, statusBefore);
+  }
   return { threadsWithActivity };
+}
+
+/**
+ * Emails the client the moment their deal resolves (landlord accepted, or
+ * every thread closed without a deal) — the other half of "the agent
+ * handles everything," not just the landlord side. Always replies into the
+ * ONE Gmail thread the client originally emailed in on (via
+ * clientThreadRegistry, populated by clientIntake.ts) — never a fresh
+ * thread, so there's exactly one conversation per deal on both sides.
+ * Deals with no registered client thread (e.g. created via the CLI/web
+ * dashboard, not an inbound email) are skipped — nothing to reply into.
+ */
+async function notifyClientOnResolution(dealId: string, statusBefore: Deal["status"]): Promise<void> {
+  const dealNow = await getDeal(dealId);
+  if (!dealNow || dealNow.status === statusBefore) return; // no transition this pass
+  if (dealNow.status !== "WON" && dealNow.status !== "LOST") return;
+
+  const { getDealClientThread, updateLastClientMessageId } = await import("../db/clientThreadRegistry.js");
+  const clientThread = getDealClientThread(dealId);
+  if (!clientThread) return;
+
+  let body: string;
+  if (dealNow.status === "WON") {
+    const threads = await getThreadsByDeal(dealId);
+    const won = threads.find((t) => t.status === "accepted");
+    if (!won) return;
+    const listing = getListingOrThrow(won.listingId);
+    body = clientDealWonEmail({
+      listing,
+      finalPriceInr: won.currentOfferInr,
+      savingsInr: won.askingPriceInr - won.currentOfferInr,
+    });
+  } else {
+    body = clientDealLostEmail();
+  }
+
+  const sent = await sendEmail({
+    account: "agent",
+    to: clientThread.clientEmail,
+    cc: clientThread.cc,
+    subject: dealNow.status === "WON" ? "Deal reached" : "Update on your office search",
+    body,
+    threadId: clientThread.threadId,
+    inReplyToMessageId: clientThread.lastMessageId,
+  });
+  updateLastClientMessageId(dealId, sent.messageId);
 }
 
 async function pollThread(deal: Deal, thread: NegotiationThread): Promise<boolean> {
@@ -300,7 +354,7 @@ async function act(args: {
     case "accept": {
       await updateConcessionModelOnTerminal("accepted");
       const body = acceptEmail(listing, decision.finalPriceInr);
-      const sent = await sendReply({ thread, listing, to: thread.landlordEmail, body, inReplyTo: latest.messageId });
+      const sent = await sendReply({ thread, listing, to: thread.landlordEmail, body, inReplyTo: latest.messageId, cc: latest.cc });
       await updateThread(thread.id, {
         ...baseThreadPatch,
         status: "accepted",
@@ -322,7 +376,7 @@ async function act(args: {
         counterPriceInr: decision.counterPriceInr,
         belowFloorFlag: decision.belowFloorFlag,
       });
-      const sent = await sendReply({ thread, listing, to: thread.landlordEmail, body, inReplyTo: latest.messageId });
+      const sent = await sendReply({ thread, listing, to: thread.landlordEmail, body, inReplyTo: latest.messageId, cc: latest.cc });
       await updateThread(thread.id, {
         ...baseThreadPatch,
         currentOfferInr: decision.counterPriceInr,
@@ -346,7 +400,7 @@ async function act(args: {
 
     case "answer_info": {
       const body = answerInfoEmail(listing, profile);
-      const sent = await sendReply({ thread, listing, to: thread.landlordEmail, body, inReplyTo: latest.messageId });
+      const sent = await sendReply({ thread, listing, to: thread.landlordEmail, body, inReplyTo: latest.messageId, cc: latest.cc });
       await updateThread(thread.id, { ...baseThreadPatch, lastMessageId: sent.messageId });
       await appendTranscript({
         dealId: deal.id,
@@ -359,7 +413,7 @@ async function act(args: {
 
     case "closed_lost": {
       const body = closedLostEmail(listing);
-      const sent = await sendReply({ thread, listing, to: thread.landlordEmail, body, inReplyTo: latest.messageId });
+      const sent = await sendReply({ thread, listing, to: thread.landlordEmail, body, inReplyTo: latest.messageId, cc: latest.cc });
       await updateThread(thread.id, { ...baseThreadPatch, status: "rejected", lastMessageId: sent.messageId });
       await appendTranscript({
         dealId: deal.id,
@@ -394,6 +448,7 @@ async function sendReply(args: {
   to: string;
   body: string;
   inReplyTo: string;
+  cc?: string;
 }) {
   return sendEmail({
     account: "agent",
@@ -402,6 +457,7 @@ async function sendReply(args: {
     body: args.body,
     threadId: args.thread.id,
     inReplyToMessageId: args.inReplyTo,
+    cc: args.cc,
   });
 }
 

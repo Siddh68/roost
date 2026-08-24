@@ -1,14 +1,254 @@
 [
-  { "name": "MG Road", "line": "Purple", "lat": 12.9757, "lng": 77.6070 },
-  { "name": "Trinity", "line": "Purple", "lat": 12.9718, "lng": 77.6198 },
-  { "name": "Indiranagar", "line": "Purple", "lat": 12.9784, "lng": 77.6408 },
-  { "name": "Baiyappanahalli", "line": "Purple", "lat": 12.9909, "lng": 77.6553 },
-  { "name": "Cubbon Park", "line": "Purple", "lat": 12.9779, "lng": 77.5967 },
-  { "name": "Majestic (Kempegowda)", "line": "Purple/Green", "lat": 12.9767, "lng": 77.5713 },
-  { "name": "Rajajinagar", "line": "Green", "lat": 12.9911, "lng": 77.5529 },
-  { "name": "Yeshwanthpur", "line": "Green", "lat": 13.0284, "lng": 77.5528 },
-  { "name": "Vijayanagar", "line": "Green", "lat": 12.9719, "lng": 77.5344 },
-  { "name": "Jayanagar", "line": "Green", "lat": 12.9308, "lng": 77.5838 },
-  { "name": "Banashankari", "line": "Green", "lat": 12.9251, "lng": 77.5460 },
-  { "name": "Nagasandra", "line": "Green", "lat": 13.0447, "lng": 77.5060 }
+  {
+    "name": "MG Road",
+    "line": "Purple",
+    "lat": 12.9757,
+    "lng": 77.607
+  },
+  {
+    "name": "Trinity",
+    "line": "Purple",
+    "lat": 12.9718,
+    "lng": 77.6198
+  },
+  {
+    "name": "Indiranagar",
+    "line": "Purple",
+    "lat": 12.9784,
+    "lng": 77.6408
+  },
+  {
+    "name": "Baiyappanahalli",
+    "line": "Purple",
+    "lat": 12.9909,
+    "lng": 77.6553
+  },
+  {
+    "name": "Cubbon Park",
+    "line": "Purple",
+    "lat": 12.9779,
+    "lng": 77.5967
+  },
+  {
+    "name": "Majestic (Kempegowda)",
+    "line": "Purple/Green",
+    "lat": 12.9767,
+    "lng": 77.5713
+  },
+  {
+    "name": "Rajajinagar",
+    "line": "Green",
+    "lat": 12.9911,
+    "lng": 77.5529
+  },
+  {
+    "name": "Yeshwanthpur",
+    "line": "Green",
+    "lat": 13.0284,
+    "lng": 77.5528
+  },
+  {
+    "name": "Vijayanagar",
+    "line": "Green",
+    "lat": 12.9719,
+    "lng": 77.5344
+  },
+  {
+    "name": "Jayanagar",
+    "line": "Green",
+    "lat": 12.9308,
+    "lng": 77.5838
+  },
+  {
+    "name": "Banashankari",
+    "line": "Green",
+    "lat": 12.9251,
+    "lng": 77.546
+  },
+  {
+    "name": "Nagasandra",
+    "line": "Green",
+    "lat": 13.0447,
+    "lng": 77.506
+  },
+  {
+    "name": "Churchgate",
+    "line": "Western Line",
+    "lat": 18.9349,
+    "lng": 72.8272
+  },
+  {
+    "name": "Mahalaxmi",
+    "line": "Western Line",
+    "lat": 18.9825,
+    "lng": 72.8242
+  },
+  {
+    "name": "Lower Parel",
+    "line": "Western Line",
+    "lat": 18.9953,
+    "lng": 72.83
+  },
+  {
+    "name": "Prabhadevi",
+    "line": "Western Line",
+    "lat": 19.008,
+    "lng": 72.8365
+  },
+  {
+    "name": "Dadar (Western)",
+    "line": "Western Line",
+    "lat": 19.0186,
+    "lng": 72.843
+  },
+  {
+    "name": "Bandra",
+    "line": "Western Line",
+    "lat": 19.0544,
+    "lng": 72.8406
+  },
+  {
+    "name": "Andheri",
+    "line": "Western Line",
+    "lat": 19.1192,
+    "lng": 72.8469
+  },
+  {
+    "name": "Goregaon",
+    "line": "Western Line",
+    "lat": 19.1644,
+    "lng": 72.8494
+  },
+  {
+    "name": "Malad",
+    "line": "Western Line",
+    "lat": 19.1869,
+    "lng": 72.8489
+  },
+  {
+    "name": "Borivali",
+    "line": "Western Line",
+    "lat": 19.2294,
+    "lng": 72.8569
+  },
+  {
+    "name": "CST",
+    "line": "Central Line",
+    "lat": 18.9398,
+    "lng": 72.8355
+  },
+  {
+    "name": "Dadar (Central)",
+    "line": "Central Line",
+    "lat": 19.0178,
+    "lng": 72.8478
+  },
+  {
+    "name": "Kurla",
+    "line": "Central Line",
+    "lat": 19.0656,
+    "lng": 72.8792
+  },
+  {
+    "name": "Vikhroli",
+    "line": "Central Line",
+    "lat": 19.11,
+    "lng": 72.92
+  },
+  {
+    "name": "Ghatkopar",
+    "line": "Central Line",
+    "lat": 19.0857,
+    "lng": 72.9081
+  },
+  {
+    "name": "Mulund",
+    "line": "Central Line",
+    "lat": 19.1726,
+    "lng": 72.956
+  },
+  {
+    "name": "Thane",
+    "line": "Central Line",
+    "lat": 19.1861,
+    "lng": 72.9758
+  },
+  {
+    "name": "Chembur",
+    "line": "Harbour Line",
+    "lat": 19.0631,
+    "lng": 72.9006
+  },
+  {
+    "name": "Vashi",
+    "line": "Harbour Line",
+    "lat": 19.0632,
+    "lng": 72.9988
+  },
+  {
+    "name": "CBD Belapur",
+    "line": "Harbour Line",
+    "lat": 19.0186,
+    "lng": 73.0389
+  },
+  {
+    "name": "Andheri (Metro)",
+    "line": "Metro Line 1",
+    "lat": 19.1206,
+    "lng": 72.8481
+  },
+  {
+    "name": "D N Nagar",
+    "line": "Metro Line 1",
+    "lat": 19.1281,
+    "lng": 72.8303
+  },
+  {
+    "name": "Western Express Highway",
+    "line": "Metro Line 1",
+    "lat": 19.1156,
+    "lng": 72.8564
+  },
+  {
+    "name": "Marol Naka",
+    "line": "Metro Line 1",
+    "lat": 19.1082,
+    "lng": 72.8795
+  },
+  {
+    "name": "Saki Naka",
+    "line": "Metro Line 1",
+    "lat": 19.1035,
+    "lng": 72.888
+  },
+  {
+    "name": "Asalpha",
+    "line": "Metro Line 1",
+    "lat": 19.0925,
+    "lng": 72.9019
+  },
+  {
+    "name": "Ghatkopar (Metro)",
+    "line": "Metro Line 1",
+    "lat": 19.0867,
+    "lng": 72.908
+  },
+  {
+    "name": "Bandra Kurla Complex (Metro)",
+    "line": "Metro Line 3 (Aqua)",
+    "lat": 19.0606,
+    "lng": 72.8547
+  },
+  {
+    "name": "Worli (Metro)",
+    "line": "Metro Line 3 (Aqua)",
+    "lat": 19.0086,
+    "lng": 72.8194
+  },
+  {
+    "name": "Science Museum",
+    "line": "Metro Line 3 (Aqua)",
+    "lat": 18.9906,
+    "lng": 72.8222
+  }
 ]

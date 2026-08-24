@@ -26,6 +26,8 @@ export interface SendEmailArgs {
   threadId?: string;
   /** RFC822 Message-ID being replied to, for In-Reply-To/References threading. */
   inReplyToMessageId?: string;
+  /** Comma-separated Cc addresses — used to keep a client's team on the thread when replying. */
+  cc?: string;
 }
 
 export interface SendEmailResult {
@@ -58,6 +60,7 @@ export interface ThreadMessage {
   messageId: string;
   from: string;
   to: string;
+  cc?: string;
   subject: string;
   date: number; // epoch ms
   body: string;
@@ -157,6 +160,7 @@ function buildRawMessage(args: {
   subject: string;
   body: string;
   inReplyTo?: string;
+  cc?: string;
 }): string {
   const headers = [
     `To: ${args.to}`,
@@ -165,6 +169,9 @@ function buildRawMessage(args: {
     `MIME-Version: 1.0`,
     `Content-Type: text/plain; charset="UTF-8"`,
   ];
+  if (args.cc) {
+    headers.push(`Cc: ${args.cc}`);
+  }
   if (args.inReplyTo) {
     headers.push(`In-Reply-To: ${args.inReplyTo}`);
     headers.push(`References: ${args.inReplyTo}`);
@@ -183,6 +190,7 @@ async function sendEmailReal(args: SendEmailArgs): Promise<SendEmailResult> {
     subject: args.subject,
     body: args.body,
     inReplyTo: args.inReplyToMessageId,
+    cc: args.cc,
   });
 
   const sendRes = await gmail.users.messages.send({
@@ -292,6 +300,7 @@ async function readThreadReal(args: ReadThreadArgs): Promise<ThreadMessage[]> {
       messageId: headerValue(headers, "Message-ID") ?? message.id!,
       from: headerValue(headers, "From") ?? "",
       to: headerValue(headers, "To") ?? "",
+      cc: headerValue(headers, "Cc"),
       subject: headerValue(headers, "Subject") ?? "",
       date: Number(message.internalDate ?? "0"),
       body: extractPlainTextBody(message.payload),

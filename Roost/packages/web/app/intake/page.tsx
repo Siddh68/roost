@@ -15,6 +15,10 @@ const AREA_OPTIONS = [
   "Electronic City", "Jayanagar", "JP Nagar", "Marathahalli", "Bellandur",
   "Sarjapur Road", "BTM Layout", "Malleshwaram", "Rajajinagar", "Yelahanka",
   "Hebbal", "Domlur", "CV Raman Nagar", "Banashankari", "Vijayanagar",
+  "BKC", "Nariman Point", "Lower Parel", "Worli", "Andheri East",
+  "Andheri West", "Powai", "Goregaon East", "Malad West", "Vikhroli",
+  "Thane West", "Vashi", "Chembur", "Ghatkopar East", "Mulund West",
+  "Prabhadevi",
 ];
 
 export default function IntakePage() {
