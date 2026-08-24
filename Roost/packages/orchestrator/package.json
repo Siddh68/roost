@@ -7,6 +7,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./db/store": "./src/db/store.ts",
+    "./db/client": "./src/db/client.ts",
     "./negotiation/stateMachine": "./src/negotiation/stateMachine.ts",
     "./negotiation/landlordAutoResponder": "./src/negotiation/landlordAutoResponder.ts"
   },
@@ -15,17 +16,20 @@
     "outreach": "tsx src/index.ts outreach",
     "poll": "tsx src/index.ts poll",
     "landlord-responder": "tsx src/index.ts landlord-responder",
-    "demo": "tsx src/index.ts demo"
+    "demo": "tsx src/index.ts demo",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:generate": "prisma generate",
+    "prisma:studio": "prisma studio"
   },
   "dependencies": {
     "@roost/mcp-server": "*",
-    "better-sqlite3": "^12.11.1",
+    "@prisma/client": "^6.19.3",
     "dotenv": "^17.4.2"
   },
   "devDependencies": {
     "typescript": "^5.5.4",
     "tsx": "^4.16.2",
     "@types/node": "^20.14.9",
-    "@types/better-sqlite3": "^7.6.11"
+    "prisma": "^6.19.3"
   }
 }

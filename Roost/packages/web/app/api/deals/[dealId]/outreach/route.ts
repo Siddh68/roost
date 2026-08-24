@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { startOutreach } from "@roost/orchestrator/negotiation/stateMachine";
-import { getDeal } from "@roost/orchestrator/db/store";
+import { requireDealAccess } from "../../../../../lib/authz";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ dealId: string }> }
 ) {
   const { dealId } = await params;
-  const deal = getDeal(dealId);
-  if (!deal) {
-    return NextResponse.json({ error: "Deal not found." }, { status: 404 });
-  }
+  const access = await requireDealAccess(dealId);
+  if (!access.ok) return access.response;
 
   const { listingIds } = (await req.json()) as { listingIds: string[] };
   if (!Array.isArray(listingIds) || listingIds.length === 0) {

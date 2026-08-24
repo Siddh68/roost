@@ -15,6 +15,10 @@
 //
 //   npm run landlord-responder --workspace=packages/orchestrator
 //     Runs the TEST-ONLY landlord auto-responder loop (Section 5.4).
+//
+// Runs entirely without NextAuth/a browser session — uses a fixed local
+// "CLI test user" (see db/store.ts's getOrCreateCliUser) so the headless
+// loop stays provable independent of the web app, per BUILD_SPEC.md.
 
 import { config } from "dotenv";
 import { readFileSync, existsSync, unlinkSync } from "node:fs";
@@ -22,7 +26,14 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { CompanyProfile } from "@roost/mcp-server/types";
 import { scoreListing } from "@roost/mcp-server/tools/scoreListing";
-import { createDeal, getDeal, getThreadsByDeal, getTranscript } from "./db/store.js";
+import {
+  getOrCreateCliUser,
+  createCompanyProfile,
+  createDeal,
+  getDeal,
+  getThreadsByDeal,
+  getTranscript,
+} from "./db/store.js";
 import { startOutreach, pollDealOnce, runPollLoop } from "./negotiation/stateMachine.js";
 import {
   runLandlordAutoResponderOnce,
@@ -57,21 +68,27 @@ function resetMockState(): void {
   }
 }
 
-function printTranscript(dealId: string): void {
+async function printTranscript(dealId: string): Promise<void> {
   console.log("\n=== Transcript ===");
-  for (const entry of getTranscript(dealId)) {
+  for (const entry of await getTranscript(dealId)) {
     console.log(
       `[${new Date(entry.timestamp).toLocaleTimeString()}] ${entry.threadId.slice(0, 12)} ${entry.type}:`,
       entry.payload
     );
   }
   console.log("\n=== Final thread states ===");
-  for (const t of getThreadsByDeal(dealId)) {
+  for (const t of await getThreadsByDeal(dealId)) {
     console.log(
       `  ${t.listingId}: status=${t.status} asking=₹${t.askingPriceInr.toLocaleString("en-IN")} ` +
         `current=₹${t.currentOfferInr.toLocaleString("en-IN")} rounds=${t.roundsUsed}`
     );
   }
+}
+
+async function createCliDeal(profile: CompanyProfile, label: string) {
+  const user = await getOrCreateCliUser();
+  const search = await createCompanyProfile({ userId: user.id, label, profile });
+  return createDeal(search.id);
 }
 
 async function cmdDemo(profilePath?: string, fresh = false, shortlistSize = 3): Promise<void> {
@@ -81,7 +98,7 @@ async function cmdDemo(profilePath?: string, fresh = false, shortlistSize = 3): 
   }
 
   const profile = loadProfile(profilePath);
-  const deal = createDeal(profile);
+  const deal = await createCliDeal(profile, `CLI demo — ${new Date().toLocaleString()}`);
   console.log(`Created deal ${deal.id}`);
   console.log(profile);
 
@@ -101,9 +118,9 @@ async function cmdDemo(profilePath?: string, fresh = false, shortlistSize = 3): 
   const maxIterations = Number(process.env.DEMO_MAX_ITERATIONS ?? 20);
 
   for (let i = 0; i < maxIterations; i++) {
-    const dealNow = getDeal(deal.id)!;
-    if (dealNow.status === "closed") {
-      console.log(`Deal closed after ${i} round(s).`);
+    const dealNow = await getDeal(deal.id);
+    if (dealNow && (dealNow.status === "WON" || dealNow.status === "LOST")) {
+      console.log(`Deal resolved (${dealNow.status}) after ${i} round(s).`);
       break;
     }
 
@@ -116,12 +133,12 @@ async function cmdDemo(profilePath?: string, fresh = false, shortlistSize = 3): 
     await new Promise((r) => setTimeout(r, intervalMs));
   }
 
-  printTranscript(deal.id);
+  await printTranscript(deal.id);
 }
 
 async function cmdOutreach(profilePath?: string, shortlistSize = 3): Promise<void> {
   const profile = loadProfile(profilePath);
-  const deal = createDeal(profile);
+  const deal = await createCliDeal(profile, `CLI outreach — ${new Date().toLocaleString()}`);
   const scored = scoreListing(profile).slice(0, shortlistSize);
   await startOutreach(
     deal.id,

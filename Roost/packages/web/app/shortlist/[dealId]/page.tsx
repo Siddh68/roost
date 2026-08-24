@@ -1,6 +1,7 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { scoreListing } from "@roost/mcp-server/tools/scoreListing";
-import { getDeal } from "@roost/orchestrator/db/store";
+import { getDeal, getDealOwnerUserId } from "@roost/orchestrator/db/store";
+import { getSessionUser } from "../../../lib/session";
 import ShortlistClient from "./ShortlistClient";
 
 export default async function ShortlistPage({
@@ -9,8 +10,12 @@ export default async function ShortlistPage({
   params: Promise<{ dealId: string }>;
 }) {
   const { dealId } = await params;
-  const deal = getDeal(dealId);
-  if (!deal) notFound();
+  const user = await getSessionUser();
+  if (!user) redirect("/login");
+
+  const [deal, ownerId] = await Promise.all([getDeal(dealId), getDealOwnerUserId(dealId)]);
+  if (!deal || !ownerId) notFound();
+  if (ownerId !== user.id && user.role !== "ADMIN") notFound();
 
   const scored = scoreListing(deal.companyProfile).slice(0, 10);
 

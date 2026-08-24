@@ -91,7 +91,7 @@ function subjectFor(listing: Listing): string {
 // ---------------------------------------------------------------------------
 
 export async function startOutreach(dealId: string, listingIds: string[]): Promise<void> {
-  const deal = getDeal(dealId);
+  const deal = await getDeal(dealId);
   if (!deal) throw new Error(`Unknown deal id: ${dealId}`);
   const profile = deal.companyProfile;
 
@@ -106,7 +106,7 @@ export async function startOutreach(dealId: string, listingIds: string[]): Promi
       body,
     });
 
-    createThread({
+    await createThread({
       threadId,
       dealId,
       listingId,
@@ -114,7 +114,7 @@ export async function startOutreach(dealId: string, listingIds: string[]): Promi
       askingPriceInr: listing.monthlyRentInr,
     });
 
-    appendTranscript({
+    await appendTranscript({
       dealId,
       threadId,
       type: "outreach_sent",
@@ -122,7 +122,7 @@ export async function startOutreach(dealId: string, listingIds: string[]): Promi
     });
   }
 
-  updateDealStatus(dealId, "negotiating");
+  await updateDealStatus(dealId, "NEGOTIATING");
 }
 
 // ---------------------------------------------------------------------------
@@ -130,10 +130,10 @@ export async function startOutreach(dealId: string, listingIds: string[]): Promi
 // ---------------------------------------------------------------------------
 
 export async function pollDealOnce(dealId: string): Promise<{ threadsWithActivity: number }> {
-  const deal = getDeal(dealId);
+  const deal = await getDeal(dealId);
   if (!deal) throw new Error(`Unknown deal id: ${dealId}`);
 
-  const activeThreads = getActiveThreadsByDeal(dealId);
+  const activeThreads = await getActiveThreadsByDeal(dealId);
   let threadsWithActivity = 0;
 
   for (const thread of activeThreads) {
@@ -141,7 +141,7 @@ export async function pollDealOnce(dealId: string): Promise<{ threadsWithActivit
     if (didAct) threadsWithActivity++;
   }
 
-  reconcileDealStatus(dealId);
+  await reconcileDealStatus(dealId);
   return { threadsWithActivity };
 }
 
@@ -152,13 +152,20 @@ async function pollThread(deal: Deal, thread: NegotiationThread): Promise<boolea
     sinceTimestamp: thread.lastPolledAt,
   });
 
-  updateThread(thread.id, { lastPolledAt: Date.now() });
+  await updateThread(thread.id, { lastPolledAt: Date.now() });
   if (newMessages.length === 0) return false;
 
   const listing = getListingOrThrow(thread.listingId);
   const profile = deal.companyProfile;
   const allMessages = await readThread({ account: "agent", threadId: thread.id });
   const latest = allMessages[allMessages.length - 1];
+
+  await appendTranscript({
+    dealId: deal.id,
+    threadId: thread.id,
+    type: "reply_received",
+    payload: { from: latest.from, snippet: latest.body.slice(0, 160) },
+  });
 
   const effectiveCurrentOffer =
     thread.roundsUsed === 0
@@ -167,7 +174,7 @@ async function pollThread(deal: Deal, thread: NegotiationThread): Promise<boolea
 
   const classification = classifyIntent(latest.body, effectiveCurrentOffer);
 
-  appendTranscript({
+  await appendTranscript({
     dealId: deal.id,
     threadId: thread.id,
     type: "intent_classified",
@@ -201,7 +208,7 @@ async function pollThread(deal: Deal, thread: NegotiationThread): Promise<boolea
   };
   const decision = decideMove(ctx);
 
-  appendTranscript({
+  await appendTranscript({
     dealId: deal.id,
     threadId: thread.id,
     type: "policy_decision",
@@ -257,7 +264,7 @@ async function act(args: {
    * stalling nudges it to concede more next time in similar situations;
    * closing gives a small reinforcing update toward the fraction used.
    */
-  function updateConcessionModelOnTerminal(outcome: "accepted" | "stalled"): void {
+  async function updateConcessionModelOnTerminal(outcome: "accepted" | "stalled"): Promise<void> {
     if (thread.lastConcessionFeaturesJson == null || thread.lastConcessionFraction == null) return;
     const features = JSON.parse(thread.lastConcessionFeaturesJson) as ConcessionFeatures;
     const usedFraction = thread.lastConcessionFraction;
@@ -272,7 +279,7 @@ async function act(args: {
     const model = getConcessionModel();
     for (let i = 0; i < 5; i++) model.update(features, target, 0.4);
     saveConcessionModel();
-    appendTranscript({
+    await appendTranscript({
       dealId: deal.id,
       threadId: thread.id,
       type: "policy_decision",
@@ -291,16 +298,16 @@ async function act(args: {
 
   switch (decision.action) {
     case "accept": {
-      updateConcessionModelOnTerminal("accepted");
+      await updateConcessionModelOnTerminal("accepted");
       const body = acceptEmail(listing, decision.finalPriceInr);
       const sent = await sendReply({ thread, listing, to: thread.landlordEmail, body, inReplyTo: latest.messageId });
-      updateThread(thread.id, {
+      await updateThread(thread.id, {
         ...baseThreadPatch,
         status: "accepted",
         currentOfferInr: decision.finalPriceInr,
         lastMessageId: sent.messageId,
       });
-      appendTranscript({
+      await appendTranscript({
         dealId: deal.id,
         threadId: thread.id,
         type: "response_sent",
@@ -316,7 +323,7 @@ async function act(args: {
         belowFloorFlag: decision.belowFloorFlag,
       });
       const sent = await sendReply({ thread, listing, to: thread.landlordEmail, body, inReplyTo: latest.messageId });
-      updateThread(thread.id, {
+      await updateThread(thread.id, {
         ...baseThreadPatch,
         currentOfferInr: decision.counterPriceInr,
         priceMovementRounds: thread.priceMovementRounds + (decision.countsAsLadderMovement ? 1 : 0),
@@ -328,7 +335,7 @@ async function act(args: {
             }
           : {}),
       });
-      appendTranscript({
+      await appendTranscript({
         dealId: deal.id,
         threadId: thread.id,
         type: "response_sent",
@@ -340,8 +347,8 @@ async function act(args: {
     case "answer_info": {
       const body = answerInfoEmail(listing, profile);
       const sent = await sendReply({ thread, listing, to: thread.landlordEmail, body, inReplyTo: latest.messageId });
-      updateThread(thread.id, { ...baseThreadPatch, lastMessageId: sent.messageId });
-      appendTranscript({
+      await updateThread(thread.id, { ...baseThreadPatch, lastMessageId: sent.messageId });
+      await appendTranscript({
         dealId: deal.id,
         threadId: thread.id,
         type: "response_sent",
@@ -353,8 +360,8 @@ async function act(args: {
     case "closed_lost": {
       const body = closedLostEmail(listing);
       const sent = await sendReply({ thread, listing, to: thread.landlordEmail, body, inReplyTo: latest.messageId });
-      updateThread(thread.id, { ...baseThreadPatch, status: "rejected", lastMessageId: sent.messageId });
-      appendTranscript({
+      await updateThread(thread.id, { ...baseThreadPatch, status: "rejected", lastMessageId: sent.messageId });
+      await appendTranscript({
         dealId: deal.id,
         threadId: thread.id,
         type: "response_sent",
@@ -366,9 +373,11 @@ async function act(args: {
     case "stop_floor_breach":
     case "stop_round_limit": {
       // Internal stop — no email sent, just halt automated action and flag for review.
-      updateConcessionModelOnTerminal("stalled");
-      updateThread(thread.id, { ...baseThreadPatch, status: decision.action });
-      appendTranscript({
+      // Both stall reasons collapse to the DB's "escalated" status; the specific
+      // reason (decision.action) still lives in this stop_condition payload.
+      await updateConcessionModelOnTerminal("stalled");
+      await updateThread(thread.id, { ...baseThreadPatch, status: "escalated" });
+      await appendTranscript({
         dealId: deal.id,
         threadId: thread.id,
         type: "stop_condition",
@@ -400,13 +409,15 @@ async function sendReply(args: {
 // Deal-level status reconciliation + demo polling loop.
 // ---------------------------------------------------------------------------
 
-function reconcileDealStatus(dealId: string): void {
-  const threads = getThreadsByDeal(dealId);
+async function reconcileDealStatus(dealId: string): Promise<void> {
+  const threads = await getThreadsByDeal(dealId);
   if (threads.length === 0) return;
   const anyAccepted = threads.some((t) => t.status === "accepted");
   const allResolved = threads.every((t) => t.status !== "active");
-  if (anyAccepted || allResolved) {
-    updateDealStatus(dealId, "closed");
+  if (anyAccepted) {
+    await updateDealStatus(dealId, "WON");
+  } else if (allResolved) {
+    await updateDealStatus(dealId, "LOST");
   }
 }
 
@@ -417,9 +428,9 @@ export async function runPollLoop(
 ): Promise<void> {
   let iteration = 0;
   while (iteration < maxIterations) {
-    const deal = getDeal(dealId);
-    if (!deal || deal.status === "closed") {
-      console.log(`[poll] deal ${dealId} is closed — stopping loop.`);
+    const deal = await getDeal(dealId);
+    if (!deal || deal.status === "WON" || deal.status === "LOST") {
+      console.log(`[poll] deal ${dealId} is resolved — stopping loop.`);
       return;
     }
 

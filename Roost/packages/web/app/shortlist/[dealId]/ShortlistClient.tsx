@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Listing, ScoreResult } from "@roost/mcp-server/types";
 
@@ -8,6 +8,8 @@ interface ScoredListing {
   listing: Listing;
   score: ScoreResult;
 }
+
+type SortKey = "score" | "rent" | "commute";
 
 function scoreColor(score: number): string {
   if (score >= 65) return "var(--accent)";
@@ -44,6 +46,33 @@ export default function ShortlistClient({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const maxRentInData = Math.max(...scored.map((s) => s.listing.monthlyRentInr), 0);
+  const floors = useMemo(
+    () => [...new Set(scored.map((s) => s.listing.floor))].sort((a, b) => a - b),
+    [scored]
+  );
+
+  const [maxBudget, setMaxBudget] = useState(maxRentInData);
+  const [floorFilter, setFloorFilter] = useState<"any" | number>("any");
+  const [furnishedOnly, setFurnishedOnly] = useState(false);
+  const [sortBy, setSortBy] = useState<SortKey>("score");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const visible = useMemo(() => {
+    const filtered = scored.filter((s) => {
+      if (s.listing.monthlyRentInr > maxBudget) return false;
+      if (floorFilter !== "any" && s.listing.floor !== floorFilter) return false;
+      if (furnishedOnly && !s.listing.furnished) return false;
+      return true;
+    });
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortBy === "rent") return a.listing.monthlyRentInr - b.listing.monthlyRentInr;
+      if (sortBy === "commute") return b.score.breakdown.commute - a.score.breakdown.commute;
+      return b.score.totalScore - a.score.totalScore;
+    });
+    return sorted;
+  }, [scored, maxBudget, floorFilter, furnishedOnly, sortBy]);
+
   function toggle(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -73,8 +102,73 @@ export default function ShortlistClient({
 
   return (
     <div className="mt-6 pb-24">
+      <div className="mb-4 flex items-center justify-between">
+        <button
+          onClick={() => setFiltersOpen((v) => !v)}
+          className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+        >
+          <span>{filtersOpen ? "▾" : "▸"}</span> Filters & sort
+        </button>
+        <span className="text-xs text-[var(--text-secondary)]">
+          {visible.length} of {scored.length} shown
+        </span>
+      </div>
+
+      {filtersOpen && (
+        <div className="mb-5 grid grid-cols-1 gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:grid-cols-4">
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">
+              Max rent: ₹{maxBudget.toLocaleString("en-IN")}
+            </label>
+            <input
+              type="range"
+              min={0}
+              max={maxRentInData}
+              step={5000}
+              value={maxBudget}
+              onChange={(e) => setMaxBudget(Number(e.target.value))}
+              className="w-full accent-[var(--accent)]"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">Floor</label>
+            <select
+              value={floorFilter}
+              onChange={(e) => setFloorFilter(e.target.value === "any" ? "any" : Number(e.target.value))}
+              className="filter-select"
+            >
+              <option value="any">Any floor</option>
+              {floors.map((f) => (
+                <option key={f} value={f}>
+                  Floor {f}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-end pb-1.5">
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={furnishedOnly}
+                onChange={(e) => setFurnishedOnly(e.target.checked)}
+                className="accent-[var(--accent)]"
+              />
+              Furnished only
+            </label>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">Sort by</label>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortKey)} className="filter-select">
+              <option value="score">Best fit score</option>
+              <option value="rent">Lowest rent</option>
+              <option value="commute">Closest to metro</option>
+            </select>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-3">
-        {scored.map((s, i) => (
+        {visible.map((s, i) => (
           <label
             key={s.listing.id}
             className="flex cursor-pointer gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 transition hover:border-[var(--accent)]/40"
@@ -86,8 +180,16 @@ export default function ShortlistClient({
               className="mt-1 h-4 w-4 shrink-0 accent-[var(--accent)]"
             />
 
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={s.listing.photoUrl}
+              alt=""
+              className="h-20 w-28 shrink-0 rounded-lg object-cover"
+              loading="lazy"
+            />
+
             <div
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
               style={{
                 border: `2px solid ${scoreColor(s.score.totalScore)}`,
                 color: scoreColor(s.score.totalScore),
@@ -110,6 +212,7 @@ export default function ShortlistClient({
                 {s.listing.furnished ? " · furnished" : ""}
                 {s.listing.parking ? " · parking" : ""}
               </p>
+              <p className="mt-1 text-xs text-[var(--text-secondary)]">{s.listing.description}</p>
 
               <div className="mt-3 grid max-w-sm grid-cols-1 gap-1">
                 <Bar label="Cost" value={s.score.breakdown.costEfficiency} />
@@ -121,6 +224,12 @@ export default function ShortlistClient({
             </div>
           </label>
         ))}
+
+        {visible.length === 0 && (
+          <p className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 text-center text-sm text-[var(--text-secondary)]">
+            No listings match these filters — try loosening them.
+          </p>
+        )}
       </div>
 
       <div className="fixed inset-x-0 bottom-0 border-t border-[var(--border)] bg-[var(--background)]/95 backdrop-blur">
@@ -138,6 +247,18 @@ export default function ShortlistClient({
           </button>
         </div>
       </div>
+
+      <style>{`
+        .filter-select {
+          width: 100%;
+          border-radius: 0.5rem;
+          border: 1px solid var(--border);
+          background: var(--surface-raised);
+          padding: 0.4rem 0.6rem;
+          font-size: 0.8rem;
+          color: var(--text-primary);
+        }
+      `}</style>
     </div>
   );
 }

@@ -19,6 +19,7 @@ const AREA_OPTIONS = [
 
 export default function IntakePage() {
   const router = useRouter();
+  const [label, setLabel] = useState("");
   const [teamSize, setTeamSize] = useState(25);
   const [budgetInr, setBudgetInr] = useState(250000);
   const [preferredArea, setPreferredArea] = useState(AREA_OPTIONS[0]);
@@ -38,12 +39,12 @@ export default function IntakePage() {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch("/api/deals", {
+      const res = await fetch("/api/searches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ teamSize, budgetInr, preferredArea, mustHaves, priceFloorPct }),
+        body: JSON.stringify({ label, teamSize, budgetInr, preferredArea, mustHaves, priceFloorPct }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Failed to create deal.");
+      if (!res.ok) throw new Error((await res.json()).error ?? "Failed to create search.");
       const { dealId } = await res.json();
       router.push(`/shortlist/${dealId}`);
     } catch (err) {
@@ -60,6 +61,16 @@ export default function IntakePage() {
       </p>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+        <Field label="Search name">
+          <input
+            type="text"
+            placeholder="e.g. Bengaluru HQ search"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            className="input"
+          />
+        </Field>
+
         <div className="grid grid-cols-2 gap-4">
           <Field label="Team size">
             <input

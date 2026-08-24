@@ -20,45 +20,21 @@ const nextConfig = {
   // what makes their NodeNext-style ".js"-suffixed relative imports resolve
   // correctly to sibling ".ts" files.
   transpilePackages: ["@roost/mcp-server", "@roost/orchestrator"],
-  // better-sqlite3 and googleapis are native/server-only — keep them out of
+  // @prisma/client and googleapis are native/server-only — keep them out of
   // the client bundle and let API routes / server components require() them
   // directly at runtime.
-  // `bindings` is better-sqlite3's transitive dependency for locating its
-  // native .node binary via stack-trace inspection — that trick breaks
-  // completely if webpack bundles it (the stack frames become
-  // webpack-internal:// URLs, not real file paths), so it must be excluded
-  // too, not just better-sqlite3 itself.
-  serverExternalPackages: ["better-sqlite3", "bindings", "googleapis"],
+  serverExternalPackages: ["@prisma/client", "googleapis"],
   // The mcp-server/orchestrator source uses NodeNext-style ".js"-suffixed
   // relative imports pointing at sibling ".ts" files (needed for tsx/Node to
   // run those packages standalone) — webpack doesn't do that remapping by
   // default, so tell it to also try .ts/.tsx when a ".js" specifier doesn't
   // resolve. Requires running with `next build --webpack` / `next dev
   // --webpack`, since Turbopack (the default) ignores this config entirely.
-  webpack: (config, { isServer }) => {
+  webpack: (config) => {
     config.resolve.extensionAlias = {
       ...config.resolve.extensionAlias,
       ".js": [".ts", ".tsx", ".js"],
     };
-
-    // serverExternalPackages' own detection misses better-sqlite3 here
-    // because it's nested under packages/orchestrator/node_modules rather
-    // than hoisted to the workspace root — force it (and its native-binary
-    // loader `bindings`) external explicitly so webpack never touches them.
-    if (isServer) {
-      const NATIVE_PACKAGES = new Set(["better-sqlite3", "bindings"]);
-      const previousExternals = config.externals;
-      config.externals = [
-        ({ request }, callback) => {
-          if (request && NATIVE_PACKAGES.has(request)) {
-            return callback(null, `commonjs ${request}`);
-          }
-          callback();
-        },
-        ...(Array.isArray(previousExternals) ? previousExternals : previousExternals ? [previousExternals] : []),
-      ];
-    }
-
     return config;
   },
 };

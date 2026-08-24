@@ -15,3 +15,4 @@ packages/orchestrator/data/concessionModel.json
 packages/orchestrator/data/.test.sqlite*
 *.log
 .DS_Store
+*.tsbuildinfo

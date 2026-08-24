@@ -10,6 +10,8 @@ export interface Listing {
   parking: boolean;
   cabAvailability: "high" | "medium" | "low";
   floor: number;
+  description: string;
+  photoUrl: string;
   landlordEmail: string;
   landlordName: string;
   contactPersona?: string;

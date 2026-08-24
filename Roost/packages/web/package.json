@@ -11,9 +11,11 @@
   "dependencies": {
     "@roost/mcp-server": "*",
     "@roost/orchestrator": "*",
-    "better-sqlite3": "^12.11.1",
+    "@prisma/client": "^6.19.3",
     "dotenv": "^17.4.2",
     "next": "^16.3.2",
+    "@supabase/supabase-js": "^2.112.3",
+    "@supabase/ssr": "^0.12.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

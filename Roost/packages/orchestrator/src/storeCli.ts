@@ -1,14 +1,24 @@
-// Smoke test for the SQLite store — CRUD round-trip, no Claude/Gmail needed.
-// Uses a throwaway DB file so it doesn't collide with real deal data.
+// Smoke test for the Prisma-backed store — CRUD round-trip across users,
+// saved searches, deals, negotiation threads, and the transcript, with no
+// Gmail or browser needed. Run after any schema/store.ts change to confirm
+// the negotiation core still persists correctly.
 
-import { unlinkSync, existsSync } from "node:fs";
+import { config } from "dotenv";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+config({ path: join(__dirname, "..", "..", "..", ".env") });
+
 import {
-  getDb,
+  getOrCreateCliUser,
+  createCompanyProfile,
+  getCompanyProfile,
+  listCompanyProfilesByUser,
   createDeal,
   getDeal,
   updateDealStatus,
+  listDealsByUser,
   createThread,
   getThread,
   updateThread,
@@ -16,97 +26,110 @@ import {
   getActiveThreadsByDeal,
   appendTranscript,
   getTranscript,
+  getActivityFeed,
+  getAdminStats,
 } from "./db/store.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const TEST_DB_PATH = join(__dirname, "..", "data", ".test.sqlite");
-
-for (const ext of ["", "-wal", "-shm"]) {
-  const f = TEST_DB_PATH + ext;
-  if (existsSync(f)) unlinkSync(f);
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(`Assertion failed: ${message}`);
 }
 
-// getDb() is a lazily-initialized singleton; calling it once with an
-// explicit path (before any other store.ts function runs) points the whole
-// module at this throwaway test DB instead of the real one.
-getDb(TEST_DB_PATH);
+async function main() {
+  console.log("Creating CLI test user...");
+  const user = await getOrCreateCliUser();
+  console.log(`  OK: ${user.email}`);
 
-const profile = {
-  teamSize: 25,
-  budgetInr: 250000,
-  preferredArea: "Koramangala",
-  mustHaves: ["metro", "parking", "furnished"] as const,
-  priceFloorPct: 0.85,
-};
+  console.log("Creating a saved search...");
+  const search = await createCompanyProfile({
+    userId: user.id,
+    label: "storeCli smoke test search",
+    profile: {
+      teamSize: 25,
+      budgetInr: 250000,
+      preferredArea: "Koramangala",
+      mustHaves: ["metro", "parking", "furnished"],
+      priceFloorPct: 0.85,
+    },
+  });
+  assert((await getCompanyProfile(search.id))?.id === search.id, "getCompanyProfile round-trip failed");
+  assert(
+    (await listCompanyProfilesByUser(user.id)).some((s) => s.id === search.id),
+    "listCompanyProfilesByUser missing the new search"
+  );
+  console.log(`  OK: ${search.id}, budget=${search.profile.budgetInr}, mustHaves=${search.profile.mustHaves.join(",")}`);
 
-console.log("Creating deal...");
-const deal = createDeal({ ...profile, mustHaves: [...profile.mustHaves] });
-console.assert(getDeal(deal.id)?.id === deal.id, "getDeal round-trip failed");
-console.log(`  OK: ${deal.id}, status=${deal.status}`);
+  console.log("Creating a deal...");
+  const deal = await createDeal(search.id);
+  assert((await getDeal(deal.id))?.status === "SHORTLISTED", "new deal should start SHORTLISTED");
+  assert((await getDeal(deal.id))?.companyProfile.budgetInr === 250000, "deal.companyProfile should carry the profile shape");
+  console.log(`  OK: ${deal.id}, status=${deal.status}`);
 
-console.log("Creating threads...");
-const t1 = createThread({
-  threadId: "thread-1",
-  dealId: deal.id,
-  listingId: "blr-001",
-  landlordEmail: "landlord@example.com",
-  askingPriceInr: 300000,
-});
-const t2 = createThread({
-  threadId: "thread-2",
-  dealId: deal.id,
-  listingId: "blr-002",
-  landlordEmail: "landlord@example.com",
-  askingPriceInr: 280000,
-});
-console.assert(getThreadsByDeal(deal.id).length === 2, "getThreadsByDeal count wrong");
-console.assert(getActiveThreadsByDeal(deal.id).length === 2, "active threads count wrong");
-console.log(`  OK: 2 threads created, both active`);
+  console.log("Updating deal status...");
+  await updateDealStatus(deal.id, "NEGOTIATING");
+  assert((await getDeal(deal.id))?.status === "NEGOTIATING", "status update didn't persist");
+  console.log(`  OK: status=${(await getDeal(deal.id))?.status}`);
 
-console.log("Updating thread state...");
-updateThread(t1.id, { currentOfferInr: 260000, roundsUsed: 1, priceMovementRounds: 1 });
-const t1Updated = getThread(t1.id)!;
-console.assert(t1Updated.currentOfferInr === 260000, "currentOfferInr not updated");
-console.assert(t1Updated.roundsUsed === 1, "roundsUsed not updated");
-console.log(`  OK: thread-1 currentOffer=${t1Updated.currentOfferInr} rounds=${t1Updated.roundsUsed}`);
+  console.log("Creating two negotiation threads...");
+  const t1 = await createThread({
+    threadId: "smoke-thread-1",
+    dealId: deal.id,
+    listingId: "blr-001",
+    landlordEmail: "landlord@example.com",
+    askingPriceInr: 300000,
+  });
+  const t2 = await createThread({
+    threadId: "smoke-thread-2",
+    dealId: deal.id,
+    listingId: "blr-002",
+    landlordEmail: "landlord@example.com",
+    askingPriceInr: 280000,
+  });
+  assert((await getThreadsByDeal(deal.id)).length === 2, "expected 2 threads");
+  assert((await getActiveThreadsByDeal(deal.id)).length === 2, "expected 2 active threads");
+  console.log(`  OK: ${t1.id}, ${t2.id}, both active`);
 
-console.log("Closing thread-1 as accepted...");
-updateThread(t1.id, { status: "accepted" });
-console.assert(getActiveThreadsByDeal(deal.id).length === 1, "active count should drop to 1");
-console.log(`  OK: active threads now ${getActiveThreadsByDeal(deal.id).length}`);
+  console.log("Updating thread state...");
+  await updateThread(t1.id, { currentOfferInr: 260000, roundsUsed: 1, priceMovementRounds: 1 });
+  const t1Updated = await getThread(t1.id);
+  assert(t1Updated?.currentOfferInr === 260000, "currentOfferInr not updated");
+  assert(t1Updated?.roundsUsed === 1, "roundsUsed not updated");
+  console.log(`  OK: currentOffer=${t1Updated?.currentOfferInr} rounds=${t1Updated?.roundsUsed}`);
 
-console.log("Appending transcript entries...");
-appendTranscript({
-  dealId: deal.id,
-  threadId: t1.id,
-  type: "outreach_sent",
-  payload: { subject: "test" },
-});
-appendTranscript({
-  dealId: deal.id,
-  threadId: t1.id,
-  type: "policy_decision",
-  payload: { action: "accept", finalPriceInr: 260000 },
-});
-const transcript = getTranscript(deal.id);
-console.assert(transcript.length === 2, `expected 2 transcript entries, got ${transcript.length}`);
-console.log(`  OK: ${transcript.length} transcript entries, types: ${transcript.map((t) => t.type).join(", ")}`);
+  console.log("Closing thread-1 as accepted...");
+  await updateThread(t1.id, { status: "accepted" });
+  assert((await getActiveThreadsByDeal(deal.id)).length === 1, "active count should drop to 1");
+  console.log(`  OK: active threads now ${(await getActiveThreadsByDeal(deal.id)).length}`);
 
-console.log("Updating deal status...");
-updateDealStatus(deal.id, "closed");
-console.assert(getDeal(deal.id)?.status === "closed", "deal status not updated");
-console.log(`  OK: deal status=${getDeal(deal.id)?.status}`);
+  console.log("Appending transcript entries...");
+  await appendTranscript({ dealId: deal.id, threadId: t1.id, type: "outreach_sent", payload: { subject: "test" } });
+  await appendTranscript({
+    dealId: deal.id,
+    threadId: t1.id,
+    type: "policy_decision",
+    payload: { action: "accept", finalPriceInr: 260000 },
+  });
+  const transcript = await getTranscript(deal.id);
+  assert(transcript.length === 2, `expected 2 transcript entries, got ${transcript.length}`);
+  console.log(`  OK: ${transcript.length} entries, types: ${transcript.map((t) => t.type).join(", ")}`);
 
-console.log("\nAll store.ts assertions passed.");
+  console.log("Checking the activity feed picks these events up...");
+  const feed = await getActivityFeed({ userId: user.id, limit: 10 });
+  assert(feed.some((e) => e.dealId === deal.id), "activity feed missing this deal's events");
+  console.log(`  OK: ${feed.length} event(s) in feed`);
 
-// Best-effort cleanup — better-sqlite3 keeps the file handle open for the
-// life of the process, so this can EBUSY on Windows; harmless either way
-// since .test.sqlite* is gitignored and overwritten on the next run.
-for (const ext of ["", "-wal", "-shm"]) {
-  try {
-    const f = TEST_DB_PATH + ext;
-    if (existsSync(f)) unlinkSync(f);
-  } catch {
-    // ignore
-  }
+  console.log("Checking listDealsByUser + admin stats...");
+  const userDeals = await listDealsByUser(user.id);
+  assert(userDeals.some((d) => d.id === deal.id), "listDealsByUser missing the new deal");
+  const stats = await getAdminStats();
+  assert(stats.totalUsers >= 1, "admin stats should count at least this user");
+  console.log(`  OK: ${userDeals.length} deal(s) for user, ${stats.totalUsers} total user(s)`);
+
+  console.log("\nAll store.ts (Prisma) assertions passed.");
 }
+
+main()
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  })
+  .finally(() => process.exit(0));

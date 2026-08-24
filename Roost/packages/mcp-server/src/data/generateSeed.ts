@@ -62,6 +62,19 @@ const TITLE_TEMPLATES = [
   (area: string) => `Tech-park adjacent office, ${area}`,
 ];
 
+const DESCRIPTION_TEMPLATES = [
+  (area: string, seats: number) =>
+    `Bright, open-plan floor in the heart of ${area}, fitted out for a team of around ${seats}. Close to cafes and everyday conveniences.`,
+  (area: string, seats: number) =>
+    `A well-maintained office in ${area} with room for roughly ${seats} desks. Quiet building, easy access for staff and visitors.`,
+  (area: string, seats: number) =>
+    `Modern workspace in ${area}, sized for about ${seats} people. Flexible layout — easy to reconfigure as the team grows.`,
+  (area: string, seats: number) =>
+    `Centrally located in ${area}, this floor comfortably seats around ${seats}. Popular with growing teams in the area.`,
+  (area: string, seats: number) =>
+    `A practical, no-frills office in ${area} built for roughly ${seats} people, with straightforward lease terms.`,
+];
+
 // Demo landlord inbox — all listings route here for the single test account.
 // Overridable so the generator can be re-run once GMAIL_LANDLORD_EMAIL is set.
 const DEMO_LANDLORD_EMAIL =
@@ -126,6 +139,8 @@ function generateListings(): Listing[] {
         parking: rand() < 0.55,
         cabAvailability: cabAvailabilityFor(area),
         floor: randInt(1, 15),
+        description: pick(DESCRIPTION_TEMPLATES)(area, seats),
+        photoUrl: `https://picsum.photos/seed/blr-${String(counter).padStart(3, "0")}/640/420`,
         landlordEmail: DEMO_LANDLORD_EMAIL,
         landlordName: pick(LANDLORD_NAMES),
         contactPersona: rand() < 0.8 ? pick(CONTACT_PERSONAS) : undefined,

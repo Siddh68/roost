@@ -1,0 +1,156 @@
+// Prisma schema — see BUILD_SPEC.md Section 3.3 for the design rationale.
+//
+// Lives in packages/orchestrator (not packages/web, as BUILD_SPEC's file
+// tree literally shows) because Deal/Negotiation/NegotiationEvent/
+// CompanyProfile are owned by the orchestrator's negotiation core, which
+// must keep running standalone via CLI (npm run demo/poll/landlord-responder)
+// independent of the web app. @roost/web imports this generated client
+// directly — Prisma handles 100% of the app's own data access; auth
+// (sign-up/sign-in/sessions) is handled separately by Supabase Auth, not
+// modeled here at all (see packages/web/lib/supabase/, lib/session.ts).
+//
+// Postgres (Supabase-hosted), not SQLite — the original prototype ran on
+// local SQLite; this schema targets Supabase's Postgres so auth (Supabase
+// Auth) and data (Prisma) share one database.
+//
+// Extends BUILD_SPEC's Negotiation/EventType shape with a few fields the
+// already-working policy engine and ML models need (askingPriceInr,
+// priceMovementRounds, lastLandlordOfferInr, noMovementStreak, the
+// concession-model replay fields, lastMessageId/lastPolledAt for Gmail
+// threading, landlordEmail) and one extra EventType (STOP_CONDITION, for
+// the escalation events the transcript UI already renders distinctly).
+
+generator client {
+  provider = "prisma-client-js"
+  // Explicit output at the workspace-root node_modules/.prisma/client:
+  // @prisma/client is a shared/hoisted dependency (both orchestrator and
+  // web depend on it), and the hoisted copy looks for its generated
+  // sibling folder next to *itself* at the root, not wherever `prisma
+  // generate` happened to run from — without this, web's Next.js server
+  // can't find the query engine binary at runtime.
+  output   = "../../../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // pooled (transaction pooler) — runtime queries
+  directUrl = env("DIRECT_URL")   // direct connection — migrations only
+}
+
+enum Role {
+  COMPANY
+  ADMIN
+}
+
+// Supabase Auth owns the actual `auth.users` table (a separate Postgres
+// schema Prisma doesn't touch) — this is an app-level profile row whose id
+// is set explicitly to match the Supabase auth user's UUID (see
+// getOrCreateProfile in db/store.ts). No Prisma-level FK across schemas;
+// the linkage is an app-level convention, not a DB constraint.
+model Profile {
+  id              String           @id
+  email           String           @unique
+  name            String?
+  role            Role             @default(COMPANY)
+  createdAt       DateTime         @default(now())
+  companyProfiles CompanyProfile[]
+}
+
+// A "saved search" — one company's requirements. A user can have several.
+model CompanyProfile {
+  id            String   @id @default(cuid())
+  userId        String
+  label         String // user-facing name, e.g. "Bengaluru HQ search"
+  teamSize      Int
+  budgetInr     Int
+  preferredArea String
+  mustHaves     String // JSON-encoded string[] — kept as-is post-Postgres-migration for minimal churn (native String[] would work too)
+  priceFloorPct Float
+  createdAt     DateTime @default(now())
+  user          Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deals         Deal[]
+}
+
+enum DealStatus {
+  SHORTLISTED
+  NEGOTIATING
+  WON
+  LOST
+}
+
+model Deal {
+  id               String          @id @default(cuid())
+  companyProfileId String
+  status           DealStatus      @default(SHORTLISTED)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  companyProfile   CompanyProfile  @relation(fields: [companyProfileId], references: [id], onDelete: Cascade)
+  shortlistItems   ShortlistItem[]
+  negotiations     Negotiation[]
+}
+
+model ShortlistItem {
+  id         String @id @default(cuid())
+  dealId     String
+  listingId  String // references listings.seed.json, not a DB relation
+  totalScore Float
+  breakdown  String // JSON-encoded ScoreResult["breakdown"]
+  reasoning  String
+  deal       Deal   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+}
+
+enum NegotiationStatus {
+  ACTIVE
+  ACCEPTED
+  REJECTED
+  ESCALATED
+}
+
+model Negotiation {
+  id             String            @id @default(cuid())
+  dealId         String
+  listingId      String
+  landlordEmail  String
+  threadId       String            @unique // Gmail (or mock) thread ID, agent-side
+  status         NegotiationStatus @default(ACTIVE)
+  askingPriceInr Int
+  currentOfferInr Int
+  roundCount     Int               @default(0)
+  priceMovementRounds Int          @default(0)
+  lastLandlordOfferInr Int?
+  noMovementStreak Int             @default(0)
+  // Features + fraction from the most recent ladder-movement counter,
+  // JSON-encoded — replayed into ConcessionModel.update() once the
+  // negotiation reaches a terminal state (see ml/concessionModel.ts).
+  lastConcessionFeaturesJson String?
+  lastConcessionFraction     Float?
+  lastMessageId  String?
+  lastPolledAt   DateTime          @default(now())
+  createdAt      DateTime          @default(now())
+  deal           Deal              @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  events         NegotiationEvent[]
+}
+
+enum EventType {
+  OUTREACH_SENT
+  REPLY_RECEIVED
+  INTENT_CLASSIFIED
+  DECISION_MADE
+  EMAIL_SENT
+  STOP_CONDITION
+  DEAL_CLOSED
+}
+
+// One row per step in the negotiation loop. This table is what both the
+// per-deal transcript view AND the cross-deal activity feed query from —
+// no separate "activity" table needed, just filter/sort this by user.
+model NegotiationEvent {
+  id            String      @id @default(cuid())
+  negotiationId String
+  type          EventType
+  payload       String // JSON-encoded — message body, classification, etc.
+  createdAt     DateTime    @default(now())
+  negotiation   Negotiation @relation(fields: [negotiationId], references: [id], onDelete: Cascade)
+
+  @@index([negotiationId])
+}
