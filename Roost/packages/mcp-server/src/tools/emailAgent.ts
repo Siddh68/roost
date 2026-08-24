@@ -138,6 +138,19 @@ function extractPlainTextBody(payload: gmail_v1.Schema$MessagePart | undefined):
   return "";
 }
 
+/**
+ * RFC 2047 "encoded word" for header text — raw UTF-8 bytes in a header
+ * (e.g. the em dash in "Office space inquiry — ...") are not strictly
+ * valid RFC 5322 and some clients mangle them into mojibake; base64-encoding
+ * non-ASCII header text is the standard fix. ASCII-only text passes through
+ * unchanged (cheap check, avoids needlessly encoding the common case).
+ */
+function encodeHeaderText(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  if (/^[\x00-\x7F]*$/.test(text)) return text;
+  return `=?UTF-8?B?${Buffer.from(text, "utf-8").toString("base64")}?=`;
+}
+
 function buildRawMessage(args: {
   to: string;
   from: string;
@@ -148,7 +161,7 @@ function buildRawMessage(args: {
   const headers = [
     `To: ${args.to}`,
     `From: ${args.from}`,
-    `Subject: ${args.subject}`,
+    `Subject: ${encodeHeaderText(args.subject)}`,
     `MIME-Version: 1.0`,
     `Content-Type: text/plain; charset="UTF-8"`,
   ];
@@ -233,13 +246,21 @@ async function checkInboxReal(args: CheckInboxArgs): Promise<InboxMessage[]> {
       maxResults: 50,
     });
 
-    for (const ref of list.data.messages ?? []) {
-      const message = await gmail.users.messages.get({
-        userId: "me",
-        id: ref.id!,
-        format: "metadata",
-        metadataHeaders: ["From", "Message-ID"],
-      });
+    // Fetch metadata for all candidates in parallel — sequential awaits here
+    // turn a 50-message inbox into 50 round-trips end to end (tens of
+    // seconds), which starves the poll loop on a demo with any real usage.
+    const messages = await Promise.all(
+      (list.data.messages ?? []).map((ref) =>
+        gmail.users.messages.get({
+          userId: "me",
+          id: ref.id!,
+          format: "metadata",
+          metadataHeaders: ["From", "Message-ID"],
+        })
+      )
+    );
+
+    for (const message of messages) {
       const headers = message.data.payload?.headers;
       const from = headerValue(headers, "From") ?? "";
       const dateMs = Number(message.data.internalDate ?? "0");

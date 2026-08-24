@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./db/store": "./src/db/store.ts",
+    "./negotiation/stateMachine": "./src/negotiation/stateMachine.ts",
+    "./negotiation/landlordAutoResponder": "./src/negotiation/landlordAutoResponder.ts"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "outreach": "tsx src/index.ts outreach",

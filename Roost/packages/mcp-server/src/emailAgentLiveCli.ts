@@ -22,7 +22,7 @@ console.log("\n1. Agent sends a real outreach email to landlord...");
 const outreach = await sendEmail({
   account: "agent",
   to: accountEmail("landlord"),
-  subject: "Roost live wiring test [ref:live-test]",
+  subject: "Roost live wiring test — encoding fix check [ref:live-test]",
   body: "This is an automated wiring test for the Roost hackathon project. Please ignore — a bot reply will follow shortly, this thread can be deleted.",
 });
 console.log(`   agent-side threadId=${outreach.threadId}`);
@@ -45,7 +45,7 @@ console.log("\n4. Landlord replies...");
 const reply = await sendEmail({
   account: "landlord",
   to: accountEmail("agent"),
-  subject: "Re: Roost live wiring test [ref:live-test]",
+  subject: "Re: Roost live wiring test — encoding fix check [ref:live-test]",
   body: "Wiring test acknowledged — reply received and threaded correctly. This thread can be deleted.",
   threadId: found.threadId,
   inReplyToMessageId: found.messageId,
