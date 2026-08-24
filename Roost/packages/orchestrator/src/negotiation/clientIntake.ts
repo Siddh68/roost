@@ -6,7 +6,7 @@
 // to the client with the shortlist, and kicks off landlord outreach so the
 // whole thing is live within one poll cycle, no human in the loop.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { sendEmail, checkInbox, readThread } from "@roost/mcp-server/tools/emailAgent";
@@ -32,13 +32,30 @@ interface IntakeState {
   threads: Record<string, IntakeThreadState>;
 }
 
+const FRESH_STATE = (): IntakeState => ({ lastPolledAt: Date.now() - 1000 * 60 * 60 * 24, threads: {} });
+
 function loadState(): IntakeState {
-  if (!existsSync(STATE_PATH)) return { lastPolledAt: Date.now() - 1000 * 60 * 60 * 24, threads: {} };
-  return JSON.parse(readFileSync(STATE_PATH, "utf-8")) as IntakeState;
+  if (!existsSync(STATE_PATH)) return FRESH_STATE();
+  try {
+    return JSON.parse(readFileSync(STATE_PATH, "utf-8")) as IntakeState;
+  } catch (err) {
+    // A corrupted state file must never permanently kill the poll loop —
+    // that's silent, total downtime until someone notices and manually
+    // fixes it. Recover with a fresh state (worst case: a couple of
+    // clients get a duplicate "we're on it" ack, never nothing at all)
+    // instead of letting loadState() throw and crash every cycle.
+    console.error("[client-intake] state file corrupted, resetting:", err);
+    return FRESH_STATE();
+  }
 }
 
 function saveState(state: IntakeState): void {
-  writeFileSync(STATE_PATH, JSON.stringify(state, null, 2), "utf-8");
+  // Write-then-rename instead of a direct write — a process killed or
+  // crashing mid-write can't leave a half-written, unparseable file this
+  // way, since rename() is atomic on both Windows and POSIX.
+  const tmpPath = `${STATE_PATH}.tmp`;
+  writeFileSync(tmpPath, JSON.stringify(state, null, 2), "utf-8");
+  renameSync(tmpPath, STATE_PATH);
 }
 
 function isLandlordSender(from: string): boolean {
