@@ -43,11 +43,23 @@ function extractBudget(text: string): number | null {
   return null;
 }
 
+// Per-city fallback when the client names the city but not a specific
+// neighborhood ("Anywhere in Mumbai") — picking a specific area from the
+// WRONG city (e.g. defaulting to Bengaluru's Koramangala for a Mumbai
+// client) is worse than a same-city guess, even an arbitrary one.
+const CITY_KEYWORDS: { pattern: RegExp; defaultArea: string }[] = [
+  { pattern: /\bmumbai\b|\bbombay\b/i, defaultArea: "Lower Parel" },
+  { pattern: /\bbengaluru\b|\bbangalore\b/i, defaultArea: "Koramangala" },
+];
+
 function extractArea(text: string): string | null {
   const areas = [...new Set(loadListings().map((l) => l.area))];
   const lower = text.toLowerCase();
   for (const area of areas) {
     if (lower.includes(area.toLowerCase())) return area;
+  }
+  for (const { pattern, defaultArea } of CITY_KEYWORDS) {
+    if (pattern.test(text)) return defaultArea;
   }
   return null;
 }
