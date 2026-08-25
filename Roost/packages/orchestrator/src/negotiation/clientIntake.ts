@@ -33,7 +33,7 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STATE_PATH = join(__dirname, "..", "..", "data", ".clientIntakeState.json");
 
-const DEFAULT_FALLBACK_AREA = "Koramangala";
+const DEFAULT_FALLBACK_AREA = "Lower Parel"; // Mumbai-only demo — see searchListings.ts's ACTIVE_LISTING_ID_PREFIX
 const SHORTLIST_SIZE = 3;
 
 // See the matching constant/comment in stateMachine.ts — Gmail's search

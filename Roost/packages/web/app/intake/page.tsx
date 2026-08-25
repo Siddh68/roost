@@ -14,10 +14,6 @@ const MUST_HAVE_OPTIONS = [
 ] as const;
 
 const AREA_OPTIONS = [
-  "Koramangala", "Indiranagar", "HSR Layout", "Whitefield", "MG Road",
-  "Electronic City", "Jayanagar", "JP Nagar", "Marathahalli", "Bellandur",
-  "Sarjapur Road", "BTM Layout", "Malleshwaram", "Rajajinagar", "Yelahanka",
-  "Hebbal", "Domlur", "CV Raman Nagar", "Banashankari", "Vijayanagar",
   "BKC", "Nariman Point", "Lower Parel", "Worli", "Andheri East",
   "Andheri West", "Powai", "Goregaon East", "Malad West", "Vikhroli",
   "Thane West", "Vashi", "Chembur", "Ghatkopar East", "Mulund West",
@@ -28,6 +24,8 @@ export default function IntakePage() {
   const router = useRouter();
   const [label, setLabel] = useState("");
   const [teamSize, setTeamSize] = useState(25);
+  const [customTeamSize, setCustomTeamSize] = useState(false);
+  const [customBudget, setCustomBudget] = useState(false);
   const [budgetInr, setBudgetInr] = useState(250000);
   const [preferredArea, setPreferredArea] = useState(AREA_OPTIONS[0]);
   const [mustHaves, setMustHaves] = useState<string[]>(["metro", "furnished"]);
@@ -80,26 +78,95 @@ export default function IntakePage() {
 
         <div className="grid grid-cols-2 gap-4">
           <Field label={`Team size: ${teamSize}`}>
-            <input
-              type="range"
-              min={1}
-              max={200}
-              step={1}
-              value={teamSize}
-              onChange={(e) => setTeamSize(Number(e.target.value))}
-              className="w-full accent-[var(--accent)]"
-            />
+            {customTeamSize ? (
+              <>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  value={teamSize}
+                  onChange={(e) => setTeamSize(Number(e.target.value))}
+                  className="input"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomTeamSize(false);
+                    setTeamSize((v) => Math.min(v, 200));
+                  }}
+                  className="mt-1 text-xs text-[var(--accent)] hover:underline"
+                >
+                  Back to slider
+                </button>
+              </>
+            ) : (
+              <>
+                <input
+                  type="range"
+                  min={1}
+                  max={200}
+                  step={1}
+                  value={teamSize}
+                  onChange={(e) => setTeamSize(Number(e.target.value))}
+                  className="w-full accent-[var(--accent)]"
+                />
+                {teamSize >= 200 && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomTeamSize(true)}
+                    className="mt-1 text-xs text-[var(--accent)] hover:underline"
+                  >
+                    Larger team? Enter custom size
+                  </button>
+                )}
+              </>
+            )}
           </Field>
           <Field label={`Monthly budget: ₹${budgetInr.toLocaleString("en-IN")}`}>
-            <input
-              type="range"
-              min={10000}
-              max={1500000}
-              step={5000}
-              value={budgetInr}
-              onChange={(e) => setBudgetInr(Number(e.target.value))}
-              className="w-full accent-[var(--accent)]"
-            />
+            {customBudget ? (
+              <>
+                <input
+                  type="number"
+                  min={1000}
+                  step={1000}
+                  required
+                  value={budgetInr}
+                  onChange={(e) => setBudgetInr(Number(e.target.value))}
+                  className="input"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomBudget(false);
+                    setBudgetInr((v) => Math.min(v, 1500000));
+                  }}
+                  className="mt-1 text-xs text-[var(--accent)] hover:underline"
+                >
+                  Back to slider
+                </button>
+              </>
+            ) : (
+              <>
+                <input
+                  type="range"
+                  min={10000}
+                  max={1500000}
+                  step={5000}
+                  value={budgetInr}
+                  onChange={(e) => setBudgetInr(Number(e.target.value))}
+                  className="w-full accent-[var(--accent)]"
+                />
+                {budgetInr >= 1500000 && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomBudget(true)}
+                    className="mt-1 text-xs text-[var(--accent)] hover:underline"
+                  >
+                    Higher budget? Enter exact amount
+                  </button>
+                )}
+              </>
+            )}
           </Field>
         </div>
 

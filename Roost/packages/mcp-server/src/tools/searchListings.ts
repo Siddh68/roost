@@ -14,10 +14,18 @@ export interface SearchListingsQuery {
 
 let cachedListings: Listing[] | null = null;
 
+// The current live demo is Mumbai-only — Bengaluru listings (id prefix
+// "blr-") stay in the seed data but are excluded from search/scoring/area
+// matching everywhere, so a client can never get a mixed-city shortlist or
+// have their profile default to a Bengaluru neighborhood. Drop this filter
+// (or make it a query param) once the product covers multiple cities live.
+const ACTIVE_LISTING_ID_PREFIX = "mum-";
+
 export function loadListings(): Listing[] {
   if (!cachedListings) {
     const path = join(__dirname, "..", "data", "listings.seed.json");
-    cachedListings = JSON.parse(readFileSync(path, "utf-8")) as Listing[];
+    const all = JSON.parse(readFileSync(path, "utf-8")) as Listing[];
+    cachedListings = all.filter((l) => l.id.startsWith(ACTIVE_LISTING_ID_PREFIX));
   }
   return cachedListings;
 }
