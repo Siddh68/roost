@@ -26,6 +26,7 @@ import {
   updateDealStatus,
   appendTranscript,
   getThreadsByDeal,
+  listAllDeals,
   type NegotiationThread,
   type Deal,
 } from "../db/store.js";
@@ -53,7 +54,7 @@ import {
   priceChangeConfirmationToClientEmail,
 } from "./emailTemplates.js";
 import { extractPriceInr } from "./ruleBasedNlu.js";
-import { getDealClientThread, setPendingPriceChange } from "../db/clientThreadRegistry.js";
+import { getDealClientThread, setPendingPriceChange, updateLastClientMessageId } from "../db/clientThreadRegistry.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONCESSION_MODEL_PATH = join(__dirname, "..", "..", "data", "concessionModel.json");
@@ -298,7 +299,6 @@ async function notifyClientOnResolution(dealId: string, statusBefore: Deal["stat
   if (!dealNow || dealNow.status === statusBefore) return; // no transition this pass
   if (dealNow.status !== "WON" && dealNow.status !== "LOST") return;
 
-  const { getDealClientThread, updateLastClientMessageId } = await import("../db/clientThreadRegistry.js");
   const clientThread = getDealClientThread(dealId);
   if (!clientThread) return;
 
@@ -628,5 +628,34 @@ export async function runPollLoop(
     iteration++;
     if (iteration >= maxIterations) break;
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
+/**
+ * Polls every NEGOTIATING and WON deal each cycle — unlike runPollLoop
+ * (a single dealId), this picks up new deals as client-intake creates
+ * them and keeps acknowledging post-acceptance landlord messages on
+ * already-WON deals, so both sides stay fully automated with nothing to
+ * start per-deal. Runs forever; call without awaiting alongside
+ * runClientIntakeLoop to run both pollers in one process (see agent.js).
+ */
+export async function runPollAllLoop(intervalMs: number): Promise<void> {
+  console.log(`Polling all active deals every ${intervalMs}ms (Ctrl+C to stop)...`);
+  for (;;) {
+    try {
+      const deals = await listAllDeals();
+      const active = deals.filter((d) => d.status === "NEGOTIATING" || d.status === "WON");
+      let totalActivity = 0;
+      for (const d of active) {
+        const { threadsWithActivity } = await pollDealOnce(d.id);
+        totalActivity += threadsWithActivity;
+      }
+      if (totalActivity > 0) {
+        console.log(`[poll-all] ${totalActivity} thread(s) had activity across ${active.length} deal(s).`);
+      }
+    } catch (err) {
+      console.error("[poll-all] poll error:", err);
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
   }
 }

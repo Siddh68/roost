@@ -189,30 +189,10 @@ async function main(): Promise<void> {
       break;
     }
     case "poll-all": {
-      // Polls every NEGOTIATING deal each cycle — unlike `poll <dealId>`,
-      // this picks up new deals as client-intake creates them, so both
-      // sides (client replies, landlord replies) stay fully automated
-      // without needing to manually start a poll loop per deal.
+      const { runPollAllLoop } = await import("./negotiation/stateMachine.js");
       const intervalMs = Number(process.env.POLL_INTERVAL_MS ?? 20000);
-      console.log(`Polling all active deals every ${intervalMs}ms (Ctrl+C to stop)...`);
-      for (;;) {
-        try {
-          const deals = await listAllDeals();
-          // WON deals still need polling — accepted threads keep getting
-          // real landlord messages (lease logistics, follow-ups) that
-          // pollDealOnce's pollAcceptedThreads() must keep acknowledging.
-          const active = deals.filter((d) => d.status === "NEGOTIATING" || d.status === "WON");
-          let totalActivity = 0;
-          for (const d of active) {
-            const { threadsWithActivity } = await pollDealOnce(d.id);
-            totalActivity += threadsWithActivity;
-          }
-          if (totalActivity > 0) console.log(`[poll-all] ${totalActivity} thread(s) had activity across ${active.length} deal(s).`);
-        } catch (err) {
-          console.error("[poll-all] poll error:", err);
-        }
-        await new Promise((r) => setTimeout(r, intervalMs));
-      }
+      await runPollAllLoop(intervalMs);
+      break;
     }
     default:
       console.log(

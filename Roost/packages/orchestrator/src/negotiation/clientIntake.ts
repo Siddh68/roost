@@ -22,6 +22,7 @@ import {
 } from "./emailTemplates.js";
 import { startOutreach, subjectFor } from "./stateMachine.js";
 import { heuristicToneLabel } from "./ruleBasedNlu.js";
+import { parseClientIntake } from "./clientIntakeNlu.js";
 import {
   recordDealClientThread,
   updateLastClientMessageId,
@@ -196,7 +197,6 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
       continue;
     }
 
-    const { parseClientIntake } = await import("./clientIntakeNlu.js");
     const parsed = parseClientIntake(latest.body, DEFAULT_FALLBACK_AREA);
 
     if (!parsed.profile) {
