@@ -69,7 +69,7 @@ export default function IntakePage() {
         <Field label="Search name">
           <input
             type="text"
-            placeholder="e.g. Bengaluru HQ search"
+            placeholder="e.g. Mumbai HQ search"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             className="input"
