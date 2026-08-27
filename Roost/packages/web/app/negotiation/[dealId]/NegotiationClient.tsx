@@ -5,7 +5,15 @@ import type { Listing } from "@roost/mcp-server/types";
 import type { Deal, NegotiationThread, TranscriptEntry } from "@roost/orchestrator/db/store";
 import { TranscriptRow, inr } from "../../../components/TranscriptRow";
 
-const TICK_INTERVAL_MS = 6000;
+// This used to actually drive the negotiation forward (see tick/route.ts's
+// history), which justified a fast 6s interval on a single-process backend
+// with effectively unlimited local capacity. It's now a pure read-only DB
+// refresh — the real driving happens in agent.js's always-on poll-all loop
+// regardless of how often this page refreshes — so a slower interval costs
+// nothing functionally while meaningfully cutting query volume against a
+// free-tier Postgres connection pool shared across every concurrent
+// serverless request.
+const TICK_INTERVAL_MS = 20000;
 
 const STATUS_STYLE: Record<string, { label: string; color: string }> = {
   active: { label: "Negotiating", color: "var(--info)" },

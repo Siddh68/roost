@@ -19,7 +19,7 @@ const { classifyIntent, getModelStats } = await import("./ml/intentModel.js");
 const { ConcessionModel } = await import("./ml/concessionModel.js");
 
 console.log("=== Intent model: bootstrap ===");
-console.log(getModelStats());
+console.log(await getModelStats("file"));
 
 console.log("\n=== Predictions on phrasing NOT in the training set ===");
 const novelExamples: [string, number][] = [
@@ -30,7 +30,7 @@ const novelExamples: [string, number][] = [
   ["Just an FYI, our office is closed this Friday.", 220000],
 ];
 for (const [text, ourOffer] of novelExamples) {
-  const result = classifyIntent(text, ourOffer);
+  const result = await classifyIntent(text, ourOffer, "file");
   console.log(`"${text}"`);
   console.log(
     `  -> intent=${result.intent} tone=${result.toneLabel} conf=${result.modelConfidence.toFixed(2)} corrected=${result.corrected} price=${result.offeredPriceInr}`
@@ -42,9 +42,9 @@ console.log("\n=== Deliberately ambiguous phrasing (model may guess wrong at fir
 // young model's raw guess disagrees with the keyword oracle, triggering a
 // visible correction.
 const trickyText = "I suppose ₹2,05,000 could be arranged, though it's tight.";
-const before = classifyIntent(trickyText, 220000);
+const before = await classifyIntent(trickyText, 220000, "file");
 console.log(`First pass: intent=${before.intent} tone=${before.toneLabel} corrected=${before.corrected}`);
-const statsAfterOne = getModelStats();
+const statsAfterOne = await getModelStats("file");
 console.log(`Model example count after that round: ${statsAfterOne.exampleCount}`);
 
 console.log("\n=== Concession model: cold start vs after a stalled outcome ===");

@@ -202,6 +202,21 @@ export async function getOrCreateProfile(args: {
   name?: string | null;
 }): Promise<{ id: string; email: string; role: Role }> {
   const role = roleForEmail(args.email);
+
+  // This runs on every authenticated page load (see getSessionUser), so a
+  // plain read-then-maybe-write beats an unconditional upsert — the common
+  // case (an existing, unchanged profile) costs one cheap indexed lookup
+  // instead of a write on every single request, which matters a lot under
+  // serverless concurrency where each write briefly holds a pooled
+  // connection.
+  const existing = await prisma.profile.findUnique({
+    where: { id: args.id },
+    select: { id: true, email: true, role: true, name: true },
+  });
+  if (existing && existing.email === args.email && existing.role === role && existing.name === (args.name ?? null)) {
+    return existing;
+  }
+
   return prisma.profile.upsert({
     where: { id: args.id },
     update: { email: args.email, name: args.name ?? undefined, role },

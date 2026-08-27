@@ -17,11 +17,21 @@ import { NaiveBayesClassifier } from "./naiveBayesClassifier.js";
 import { TRAINING_DATA, type ToneLabel } from "./trainingData.js";
 import { extractPriceInr, heuristicToneLabel } from "../negotiation/ruleBasedNlu.js";
 import type { NegotiationIntent } from "../negotiation/policy.js";
+import { loadAgentState, saveAgentState } from "../db/agentState.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MODEL_PATH = join(__dirname, "..", "..", "data", "intentModel.json");
+const DB_KEY = "intentModel";
+
+// "file" persists to a local JSON file — used only by mlCli.ts's smoke
+// test, which deletes that file up front so each run starts from a clean
+// bootstrap and never touches shared state. "db" (the live agent's default)
+// persists to the AgentState table so the classifier survives restarts on
+// a host with an ephemeral filesystem.
+export type ModelStore = "file" | "db";
 
 let classifier: NaiveBayesClassifier | null = null;
+let classifierStore: ModelStore | null = null;
 
 function bootstrapTrain(): NaiveBayesClassifier {
   const model = new NaiveBayesClassifier();
@@ -29,11 +39,26 @@ function bootstrapTrain(): NaiveBayesClassifier {
   return model;
 }
 
-export function getClassifier(): NaiveBayesClassifier {
-  if (!classifier) {
+export async function getClassifier(store: ModelStore = "db"): Promise<NaiveBayesClassifier> {
+  if (classifier && classifierStore === store) return classifier;
+
+  if (store === "file") {
     classifier = NaiveBayesClassifier.load(MODEL_PATH) ?? bootstrapTrain();
     classifier.save(MODEL_PATH);
+  } else {
+    try {
+      const saved = await loadAgentState<ReturnType<NaiveBayesClassifier["toJSON"]>>(DB_KEY);
+      classifier = saved ? NaiveBayesClassifier.fromJSON(saved) : bootstrapTrain();
+    } catch (err) {
+      // A bad row here must never permanently wedge every poll cycle —
+      // re-bootstrapping loses accumulated corrections, but that's far
+      // better than every deal in every cycle throwing forever.
+      console.error("[intentModel] state load failed, re-bootstrapping:", err);
+      classifier = bootstrapTrain();
+    }
+    await saveAgentState(DB_KEY, classifier.toJSON());
   }
+  classifierStore = store;
   return classifier;
 }
 
@@ -46,8 +71,12 @@ export interface ClassifiedIntent {
   corrected: boolean;
 }
 
-export function classifyIntent(text: string, ourLastOfferInr: number): ClassifiedIntent {
-  const model = getClassifier();
+export async function classifyIntent(
+  text: string,
+  ourLastOfferInr: number,
+  store: ModelStore = "db"
+): Promise<ClassifiedIntent> {
+  const model = await getClassifier(store);
   const price = extractPriceInr(text);
   const prediction = model.predict(text);
   const predictedTone = prediction.label as ToneLabel;
@@ -59,7 +88,11 @@ export function classifyIntent(text: string, ourLastOfferInr: number): Classifie
   // its own prediction (still learning, just confirming) — the model keeps
   // accumulating examples during live use either way.
   model.train(text, corrected ? oracleTone! : predictedTone);
-  model.save(MODEL_PATH);
+  if (store === "file") {
+    model.save(MODEL_PATH);
+  } else {
+    await saveAgentState(DB_KEY, model.toJSON());
+  }
 
   const finalTone = corrected ? oracleTone! : predictedTone;
 
@@ -92,8 +125,10 @@ export function classifyIntent(text: string, ourLastOfferInr: number): Classifie
   };
 }
 
-export function getModelStats(): { exampleCount: number; vocabSize: number } {
-  const model = getClassifier();
+export async function getModelStats(
+  store: ModelStore = "db"
+): Promise<{ exampleCount: number; vocabSize: number }> {
+  const model = await getClassifier(store);
   const json = model.toJSON();
   return { exampleCount: model.exampleCount, vocabSize: json.vocab.length };
 }

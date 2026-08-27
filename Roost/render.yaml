@@ -1,0 +1,44 @@
+# Render Blueprint for the always-on negotiation agent (agent.js) — the two
+# background loops that poll Gmail and reply to clients/landlords with no
+# human in the loop. Render's free plan only offers the "Web Service" type
+# (background workers are paid-only), which is why agent.js binds an HTTP
+# port purely to satisfy Render's health check; the loops are the real job.
+#
+# State (ML model weights, poll-cursor/dedup tracking) lives in Postgres via
+# the AgentState table, not local files — required here since Render's free
+# tier filesystem is wiped on every restart.
+#
+# Deploy: on render.com, New -> Blueprint -> pick this repo. Render reads
+# this file and creates the service below. Secret env vars (marked
+# `sync: false`) must be filled in manually in the Render dashboard after
+# creation — copy them from this repo's .env (never commit that file).
+services:
+  - type: web
+    name: roost-agent
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install
+    startCommand: node agent.js
+    healthCheckPath: /
+    envVars:
+      - key: GMAIL_AGENT_CLIENT_ID
+        sync: false
+      - key: GMAIL_AGENT_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_AGENT_REFRESH_TOKEN
+        sync: false
+      - key: GMAIL_AGENT_EMAIL
+        sync: false
+      - key: GMAIL_LANDLORD_CLIENT_ID
+        sync: false
+      - key: GMAIL_LANDLORD_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_LANDLORD_REFRESH_TOKEN
+        sync: false
+      - key: GMAIL_LANDLORD_EMAIL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false

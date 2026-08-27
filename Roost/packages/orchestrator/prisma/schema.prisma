@@ -154,3 +154,19 @@ model NegotiationEvent {
 
   @@index([negotiationId])
 }
+
+// Generic key-value store for everything that used to live in local JSON
+// files under packages/orchestrator/data (ML model weights, poll-cursor/
+// dedup state) — those files assumed a persistent local disk, which breaks
+// on any host with an ephemeral filesystem (serverless, or a free-tier
+// container that gets wiped on restart). Moving state here makes the
+// always-on agent process host-agnostic. One row per logical store: keys
+// in use are "intentModel", "concessionModel", "clientIntakeState",
+// "dealClientThreads". (landlordAutoResponder.ts is separate, test-only
+// scaffolding for the mock landlord side of local demos — not started by
+// agent.js — and still uses a local file; not worth migrating.)
+model AgentState {
+  key       String   @id
+  value     String // JSON-encoded — shape matches whatever the old file held
+  updatedAt DateTime @updatedAt
+}

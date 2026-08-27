@@ -1,12 +1,16 @@
 // Maps a Deal to the single Gmail thread the client emailed in on — every
 // client-facing email for that deal (shortlist confirmation, follow-ups,
 // win/loss outcome) replies into this one thread, never a new one.
-import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+//
+// Both of agent.js's loops (client-intake and poll-all) can touch this same
+// key concurrently — client-intake creates entries, poll-all updates
+// pendingPriceChange/lastMessageId on possibly-different deals in the same
+// shared blob — so every mutation goes through updateAgentState's atomic
+// read-modify-write instead of a separate load()+save(), which would have
+// a real race window between them.
+import { updateAgentState, loadAgentState } from "./agentState.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const PATH = join(__dirname, "..", "..", "data", ".dealClientThreads.json");
+const DB_KEY = "dealClientThreads";
 
 export interface PendingPriceChange {
   /** The landlord-side Negotiation thread id this change came in on. */
@@ -24,52 +28,46 @@ export interface DealClientThread {
   pendingPriceChange?: PendingPriceChange | null;
 }
 
-function load(): Record<string, DealClientThread> {
-  if (!existsSync(PATH)) return {};
+type Registry = Record<string, DealClientThread>;
+
+export async function recordDealClientThread(dealId: string, info: DealClientThread): Promise<void> {
+  await updateAgentState<Registry>(DB_KEY, (current) => {
+    const state = current ?? {};
+    state[dealId] = info;
+    return state;
+  });
+}
+
+export async function getDealClientThread(dealId: string): Promise<DealClientThread | null> {
   try {
-    return JSON.parse(readFileSync(PATH, "utf-8")) as Record<string, DealClientThread>;
+    const state = await loadAgentState<Registry>(DB_KEY);
+    return state?.[dealId] ?? null;
   } catch (err) {
-    console.error("[clientThreadRegistry] state file corrupted, resetting:", err);
-    return {};
+    console.error("[clientThreadRegistry] read failed:", err);
+    return null;
   }
 }
 
-function save(state: Record<string, DealClientThread>): void {
-  const tmpPath = `${PATH}.tmp`;
-  writeFileSync(tmpPath, JSON.stringify(state, null, 2), "utf-8");
-  renameSync(tmpPath, PATH);
+export async function updateLastClientMessageId(dealId: string, messageId: string): Promise<void> {
+  await updateAgentState<Registry>(DB_KEY, (current) => {
+    const state = current ?? {};
+    if (state[dealId]) state[dealId].lastMessageId = messageId;
+    return state;
+  });
 }
 
-export function recordDealClientThread(dealId: string, info: DealClientThread): void {
-  const state = load();
-  state[dealId] = info;
-  save(state);
+export async function setPendingPriceChange(dealId: string, change: PendingPriceChange): Promise<void> {
+  await updateAgentState<Registry>(DB_KEY, (current) => {
+    const state = current ?? {};
+    if (state[dealId]) state[dealId].pendingPriceChange = change;
+    return state;
+  });
 }
 
-export function getDealClientThread(dealId: string): DealClientThread | null {
-  return load()[dealId] ?? null;
-}
-
-export function updateLastClientMessageId(dealId: string, messageId: string): void {
-  const state = load();
-  if (state[dealId]) {
-    state[dealId].lastMessageId = messageId;
-    save(state);
-  }
-}
-
-export function setPendingPriceChange(dealId: string, change: PendingPriceChange): void {
-  const state = load();
-  if (state[dealId]) {
-    state[dealId].pendingPriceChange = change;
-    save(state);
-  }
-}
-
-export function clearPendingPriceChange(dealId: string): void {
-  const state = load();
-  if (state[dealId]) {
-    state[dealId].pendingPriceChange = null;
-    save(state);
-  }
+export async function clearPendingPriceChange(dealId: string): Promise<void> {
+  await updateAgentState<Registry>(DB_KEY, (current) => {
+    const state = current ?? {};
+    if (state[dealId]) state[dealId].pendingPriceChange = null;
+    return state;
+  });
 }

@@ -8,8 +8,6 @@
 // email prose comes from fixed templates (emailTemplates.ts) parameterized
 // with whatever move policy.ts has decided on.
 
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import type { Listing } from "@roost/mcp-server/types";
 import { loadListings } from "@roost/mcp-server/tools/searchListings";
 import {
@@ -55,9 +53,9 @@ import {
 } from "./emailTemplates.js";
 import { extractPriceInr } from "./ruleBasedNlu.js";
 import { getDealClientThread, setPendingPriceChange, updateLastClientMessageId } from "../db/clientThreadRegistry.js";
+import { loadAgentState, saveAgentState } from "../db/agentState.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONCESSION_MODEL_PATH = join(__dirname, "..", "..", "data", "concessionModel.json");
+const CONCESSION_MODEL_DB_KEY = "concessionModel";
 
 // Gmail's search index can lag a few seconds behind actual delivery — a
 // poll cursor that jumps straight to "now" every cycle can race past a
@@ -68,14 +66,24 @@ const CONCESSION_MODEL_PATH = join(__dirname, "..", "..", "data", "concessionMod
 const POLL_SAFETY_BUFFER_MS = 60_000;
 
 let concessionModel: ConcessionModel | null = null;
-function getConcessionModel(): ConcessionModel {
+async function getConcessionModel(): Promise<ConcessionModel> {
   if (!concessionModel) {
-    concessionModel = ConcessionModel.load(CONCESSION_MODEL_PATH) ?? new ConcessionModel();
+    try {
+      const saved = await loadAgentState<ReturnType<ConcessionModel["toJSON"]>>(CONCESSION_MODEL_DB_KEY);
+      concessionModel = saved ? ConcessionModel.fromJSON(saved) : new ConcessionModel();
+    } catch (err) {
+      // A bad row here must never permanently wedge every poll cycle — a
+      // fresh cold-start model is far better than every deal in every
+      // cycle throwing forever.
+      console.error("[stateMachine] concession model load failed, resetting:", err);
+      concessionModel = new ConcessionModel();
+    }
   }
   return concessionModel;
 }
-function saveConcessionModel(): void {
-  getConcessionModel().save(CONCESSION_MODEL_PATH);
+async function saveConcessionModel(): Promise<void> {
+  const model = await getConcessionModel();
+  await saveAgentState(CONCESSION_MODEL_DB_KEY, model.toJSON());
 }
 
 function computeConcessionFeatures(
@@ -224,7 +232,7 @@ export async function pollAcceptedThreads(dealId: string): Promise<number> {
       action = "price_change_over_budget";
       body = priceChangeOverBudgetEmail({ listing, previousPriceInr: thread.currentOfferInr });
     } else if (priceChanged && deal) {
-      const clientThread = getDealClientThread(dealId);
+      const clientThread = await getDealClientThread(dealId);
       if (clientThread) {
         // Within budget but a real change from what was agreed — the
         // client already got a "deal reached" email at the old number,
@@ -242,7 +250,7 @@ export async function pollAcceptedThreads(dealId: string): Promise<number> {
           threadId: clientThread.threadId,
           inReplyToMessageId: clientThread.lastMessageId,
         });
-        setPendingPriceChange(dealId, {
+        await setPendingPriceChange(dealId, {
           landlordThreadId: thread.id,
           listingId: thread.listingId,
           newPriceInr: revisedPrice!,
@@ -299,7 +307,7 @@ async function notifyClientOnResolution(dealId: string, statusBefore: Deal["stat
   if (!dealNow || dealNow.status === statusBefore) return; // no transition this pass
   if (dealNow.status !== "WON" && dealNow.status !== "LOST") return;
 
-  const clientThread = getDealClientThread(dealId);
+  const clientThread = await getDealClientThread(dealId);
   if (!clientThread) return;
 
   let body: string;
@@ -326,7 +334,7 @@ async function notifyClientOnResolution(dealId: string, statusBefore: Deal["stat
     threadId: clientThread.threadId,
     inReplyToMessageId: clientThread.lastMessageId,
   });
-  updateLastClientMessageId(dealId, sent.messageId);
+  await updateLastClientMessageId(dealId, sent.messageId);
 }
 
 async function pollThread(deal: Deal, thread: NegotiationThread): Promise<boolean> {
@@ -356,7 +364,7 @@ async function pollThread(deal: Deal, thread: NegotiationThread): Promise<boolea
       ? openingCounterPriceInr(thread.askingPriceInr, profile)
       : thread.currentOfferInr;
 
-  const classification = classifyIntent(latest.body, effectiveCurrentOffer);
+  const classification = await classifyIntent(latest.body, effectiveCurrentOffer);
 
   await appendTranscript({
     dealId: deal.id,
@@ -376,7 +384,9 @@ async function pollThread(deal: Deal, thread: NegotiationThread): Promise<boolea
           profile
         )
       : null;
-  const predictedFraction = concessionFeatures ? getConcessionModel().predict(concessionFeatures) : undefined;
+  const predictedFraction = concessionFeatures
+    ? (await getConcessionModel()).predict(concessionFeatures)
+    : undefined;
 
   const ctx: PolicyContext = {
     intent: classification.intent,
@@ -460,9 +470,9 @@ async function act(args: {
     // steps toward this one real outcome so it registers as a visible
     // behavior shift rather than an imperceptible nudge (this hackathon demo
     // will see a few real outcomes, not thousands of training examples).
-    const model = getConcessionModel();
+    const model = await getConcessionModel();
     for (let i = 0; i < 5; i++) model.update(features, target, 0.4);
-    saveConcessionModel();
+    await saveConcessionModel();
     await appendTranscript({
       dealId: deal.id,
       threadId: thread.id,

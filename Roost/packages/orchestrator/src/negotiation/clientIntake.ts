@@ -6,9 +6,6 @@
 // to the client with the shortlist, and kicks off landlord outreach so the
 // whole thing is live within one poll cycle, no human in the loop.
 
-import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { sendEmail, checkInbox, readThread } from "@roost/mcp-server/tools/emailAgent";
 import { scoreListing } from "@roost/mcp-server/tools/scoreListing";
 import { loadListings } from "@roost/mcp-server/tools/searchListings";
@@ -29,9 +26,9 @@ import {
   getDealClientThread,
   clearPendingPriceChange,
 } from "../db/clientThreadRegistry.js";
+import { loadAgentState, saveAgentState } from "../db/agentState.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const STATE_PATH = join(__dirname, "..", "..", "data", ".clientIntakeState.json");
+const STATE_DB_KEY = "clientIntakeState";
 
 const DEFAULT_FALLBACK_AREA = "Lower Parel"; // Mumbai-only demo — see searchListings.ts's ACTIVE_LISTING_ID_PREFIX
 const SHORTLIST_SIZE = 3;
@@ -54,28 +51,23 @@ interface IntakeState {
 
 const FRESH_STATE = (): IntakeState => ({ lastPolledAt: Date.now() - 1000 * 60 * 60 * 24, threads: {} });
 
-function loadState(): IntakeState {
-  if (!existsSync(STATE_PATH)) return FRESH_STATE();
+async function loadState(): Promise<IntakeState> {
   try {
-    return JSON.parse(readFileSync(STATE_PATH, "utf-8")) as IntakeState;
+    const saved = await loadAgentState<IntakeState>(STATE_DB_KEY);
+    return saved ?? FRESH_STATE();
   } catch (err) {
-    // A corrupted state file must never permanently kill the poll loop —
-    // that's silent, total downtime until someone notices and manually
-    // fixes it. Recover with a fresh state (worst case: a couple of
-    // clients get a duplicate "we're on it" ack, never nothing at all)
+    // Corrupted/unreachable state must never permanently kill the poll
+    // loop — that's silent, total downtime until someone notices and
+    // manually fixes it. Recover with a fresh state (worst case: a couple
+    // of clients get a duplicate "we're on it" ack, never nothing at all)
     // instead of letting loadState() throw and crash every cycle.
-    console.error("[client-intake] state file corrupted, resetting:", err);
+    console.error("[client-intake] state load failed, resetting:", err);
     return FRESH_STATE();
   }
 }
 
-function saveState(state: IntakeState): void {
-  // Write-then-rename instead of a direct write — a process killed or
-  // crashing mid-write can't leave a half-written, unparseable file this
-  // way, since rename() is atomic on both Windows and POSIX.
-  const tmpPath = `${STATE_PATH}.tmp`;
-  writeFileSync(tmpPath, JSON.stringify(state, null, 2), "utf-8");
-  renameSync(tmpPath, STATE_PATH);
+async function saveState(state: IntakeState): Promise<void> {
+  await saveAgentState(STATE_DB_KEY, state);
 }
 
 function isLandlordSender(from: string): boolean {
@@ -95,7 +87,7 @@ function extractSenderName(from: string): string | null {
 
 /** One discovery pass: finds new client threads, processes any we can act on immediately. Returns how many client replies were handled this pass. */
 export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
-  const state = loadState();
+  const state = await loadState();
   const sinceTimestamp = state.lastPolledAt;
   const nowTimestamp = Date.now();
 
@@ -121,7 +113,7 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
     // follow-up, not a fresh submission. Acknowledge it so nothing goes
     // silently unanswered, but don't re-run intake or re-send outreach.
     if (existing?.status === "processed") {
-      const clientThread = existing.dealId ? getDealClientThread(existing.dealId) : null;
+      const clientThread = existing.dealId ? await getDealClientThread(existing.dealId) : null;
       const pending = clientThread?.pendingPriceChange;
 
       if (existing.dealId && pending) {
@@ -148,7 +140,7 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
             threadId: pending.landlordThreadId,
           });
           await updateThread(pending.landlordThreadId, { currentOfferInr: pending.newPriceInr });
-          clearPendingPriceChange(existing.dealId);
+          await clearPendingPriceChange(existing.dealId);
         } else if (tone === "decline" && listing) {
           await sendEmail({
             account: "agent",
@@ -166,7 +158,7 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
             body: priceChangeRejectedToLandlordEmail(listing, pending.previousPriceInr),
             threadId: pending.landlordThreadId,
           });
-          clearPendingPriceChange(existing.dealId);
+          await clearPendingPriceChange(existing.dealId);
         } else {
           // Couldn't tell yes/no from this reply — ask again rather than guess on a real price decision.
           await sendEmail({
@@ -192,7 +184,7 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
         threadId: message.threadId,
         inReplyToMessageId: latest.messageId,
       });
-      if (existing.dealId) updateLastClientMessageId(existing.dealId, sent.messageId);
+      if (existing.dealId) await updateLastClientMessageId(existing.dealId, sent.messageId);
       handled++;
       continue;
     }
@@ -213,7 +205,7 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
         threadId: message.threadId,
         inReplyToMessageId: latest.messageId,
       });
-      if (existing?.dealId) updateLastClientMessageId(existing.dealId, sent.messageId);
+      if (existing?.dealId) await updateLastClientMessageId(existing.dealId, sent.messageId);
       state.threads[message.threadId] = { status: "awaiting_requirements" };
       handled++;
       continue;
@@ -236,7 +228,7 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
         threadId: message.threadId,
         inReplyToMessageId: latest.messageId,
       });
-      updateLastClientMessageId(activeDeal.id, sent.messageId);
+      await updateLastClientMessageId(activeDeal.id, sent.messageId);
       state.threads[message.threadId] = { status: "processed", dealId: activeDeal.id };
       handled++;
       continue;
@@ -272,7 +264,7 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
 
     // From here on, every client-facing email for this deal (win/loss
     // outcome, more follow-ups) replies into this exact same thread.
-    recordDealClientThread(deal.id, {
+    await recordDealClientThread(deal.id, {
       threadId: message.threadId,
       lastMessageId: sentReply.messageId,
       clientEmail: senderEmail,
@@ -289,7 +281,7 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
   }
 
   state.lastPolledAt = nowTimestamp - POLL_SAFETY_BUFFER_MS;
-  saveState(state);
+  await saveState(state);
   return { handled };
 }
 

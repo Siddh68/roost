@@ -11,8 +11,28 @@
 require("tsx/cjs");
 
 const path = require("path");
+const http = require("http");
+
+// Render (and most free/no-card PaaS free tiers) only offer a "Web Service"
+// deploy type on their free plan — actual background workers are paid-only
+// — so this process needs to bind a port and answer HTTP for the platform's
+// health checks, even though its real job is the two loops below, not
+// serving requests. Harmless no-op on Hostinger, which doesn't require this.
+function startHealthServer() {
+  const port = process.env.PORT || 3001;
+  http
+    .createServer((_req, res) => {
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end("Roost agent is running.\n");
+    })
+    .listen(port, () => {
+      console.log(`Health check server listening on port ${port}.`);
+    });
+}
 
 async function main() {
+  startHealthServer();
+
   const { runClientIntakeLoop } = require(
     path.join(__dirname, "packages/orchestrator/src/negotiation/clientIntake.ts")
   );
