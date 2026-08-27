@@ -40,8 +40,8 @@ async function main() {
     path.join(__dirname, "packages/orchestrator/src/negotiation/stateMachine.ts")
   );
 
-  const clientIntakeIntervalMs = Number(process.env.CLIENT_INTAKE_INTERVAL_MS || 15000);
-  const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS || 15000);
+  const clientIntakeIntervalMs = Number(process.env.CLIENT_INTAKE_INTERVAL_MS || 5000);
+  const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS || 5000);
 
   console.log(`Roost agent starting — client-intake every ${clientIntakeIntervalMs}ms, poll-all every ${pollIntervalMs}ms.`);
 
