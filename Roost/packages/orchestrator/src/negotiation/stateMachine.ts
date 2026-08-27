@@ -392,6 +392,19 @@ async function pollThread(deal: Deal, thread: NegotiationThread): Promise<boolea
   const allMessages = await readThread({ account: "agent", threadId: thread.id });
   const latest = allMessages[allMessages.length - 1];
 
+  // The thread's "latest message" right after we send a reply is our OWN
+  // reply, until the landlord actually responds — checkInbox's
+  // sinceTimestamp window can still surface it as "new" on the very next
+  // poll cycle. With no sender check here, that meant the agent could
+  // classify its own just-sent counter-offer as an incoming reply, see a
+  // price that trivially matches "our" last offer (because it IS our last
+  // offer), and accept its own proposal as if the landlord had agreed to
+  // it — confirmed live: a deal closed after only our own counter-offer
+  // email, no landlord response at all.
+  if (latest.from.toLowerCase().includes(accountEmail("agent").toLowerCase())) {
+    return false;
+  }
+
   await appendTranscript({
     dealId: deal.id,
     threadId: thread.id,
