@@ -21,3 +21,6 @@ packages/orchestrator/data/.test.sqlite*
 
 .vercel
 .env*
+
+.claude/settings.local.json
+.stitch/

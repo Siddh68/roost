@@ -38,45 +38,41 @@ export default async function HistoryPage() {
           </Link>
         </div>
       ) : (
-        <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--border)]">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--text-secondary)]">
-                <th className="px-4 py-2.5 font-medium">Search</th>
-                <th className="px-4 py-2.5 font-medium">Created</th>
-                <th className="px-4 py-2.5 font-medium">Budget</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {deals.map((deal) => {
-                const style = DEAL_STATUS_STYLE[deal.status] ?? { label: deal.status, color: "var(--text-secondary)" };
-                return (
-                  <tr key={deal.id} className="border-b border-[var(--border)] last:border-0">
-                    <td className="px-4 py-2.5">
-                      <Link href={dealHref(deal)} className="hover:text-[var(--accent)]">
-                        {deal.label}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-2.5 text-[var(--text-secondary)]">
-                      {new Date(deal.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-2.5 text-[var(--text-secondary)]">
-                      ₹{deal.companyProfile.budgetInr.toLocaleString("en-IN")}/mo
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span
-                        className="rounded-full px-2 py-0.5 text-xs font-medium"
-                        style={{ color: style.color, background: `${style.color}22` }}
-                      >
-                        {style.label}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="mt-6 space-y-3">
+          {deals.map((deal) => {
+            const style = DEAL_STATUS_STYLE[deal.status] ?? { label: deal.status, color: "var(--text-secondary)" };
+            return (
+              <Link
+                key={deal.id}
+                href={dealHref(deal)}
+                className="flex items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 transition hover:border-[var(--accent)]/40"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{deal.label}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-[var(--text-secondary)]">Created</p>
+                      <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
+                        {new Date(deal.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-[var(--text-secondary)]">Budget</p>
+                      <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
+                        ₹{deal.companyProfile.budgetInr.toLocaleString("en-IN")}/mo
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <span
+                  className="shrink-0 rounded-full px-2.5 py-1 text-xs font-medium"
+                  style={{ color: style.color, background: `${style.color}22` }}
+                >
+                  {style.label}
+                </span>
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>

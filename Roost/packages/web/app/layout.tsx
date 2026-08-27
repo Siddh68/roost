@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import HeaderNav from "./HeaderNav";
+import Sidebar from "./Sidebar";
 import EmailAgentButton from "./EmailAgentButton";
 import { getSessionUser } from "../lib/session";
 
@@ -19,8 +19,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en">
       <body className="min-h-screen bg-[var(--background)] text-[var(--text-primary)]">
-        <HeaderNav user={user} />
-        <main className="mx-auto max-w-5xl px-6 py-8">{children}</main>
+        {user && <Sidebar user={user} />}
+        <main className={user ? "ml-60 px-8 py-8" : ""}>
+          <div className={user ? "mx-auto max-w-5xl" : ""}>{children}</div>
+        </main>
         {agentEmail && <EmailAgentButton agentEmail={agentEmail} />}
       </body>
     </html>

@@ -15,6 +15,15 @@ function dealHref(deal: DealWithMeta): string {
   return deal.status === "SHORTLISTED" ? `/shortlist/${deal.id}` : `/negotiation/${deal.id}`;
 }
 
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wide text-[var(--text-secondary)]">{label}</p>
+      <p className="mt-0.5 truncate text-sm font-medium">{value}</p>
+    </div>
+  );
+}
+
 export default async function SearchesPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
@@ -43,7 +52,7 @@ export default async function SearchesPage() {
       </div>
 
       {searches.length === 0 ? (
-        <div className="mt-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-8 text-center">
+        <div className="mt-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-10 text-center">
           <p className="text-sm text-[var(--text-secondary)]">
             No saved searches yet — create one to see a scored shortlist and start negotiating.
           </p>
@@ -55,45 +64,59 @@ export default async function SearchesPage() {
           </Link>
         </div>
       ) : (
-        <div className="mt-6 space-y-4">
+        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
           {searches.map((search) => {
             const searchDeals = dealsBySearch.get(search.id) ?? [];
             return (
-              <div key={search.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="font-medium">{search.label}</h2>
-                    <p className="text-xs text-[var(--text-secondary)]">
-                      {search.profile.teamSize} people · ₹{search.profile.budgetInr.toLocaleString("en-IN")}/mo · {search.profile.preferredArea}
-                    </p>
-                  </div>
+              <div
+                key={search.id}
+                className="flex flex-col rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 transition hover:border-[var(--accent)]/40"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <h2 className="text-base font-semibold">{search.label}</h2>
                   <RunSearchButton searchId={search.id} />
                 </div>
 
-                {searchDeals.length > 0 && (
-                  <div className="mt-3 space-y-1.5 border-t border-[var(--border)] pt-3">
-                    {searchDeals.map((deal) => {
-                      const style = DEAL_STATUS_STYLE[deal.status] ?? { label: deal.status, color: "var(--text-secondary)" };
-                      return (
-                        <Link
-                          key={deal.id}
-                          href={dealHref(deal)}
-                          className="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm hover:bg-[var(--surface-raised)]"
-                        >
-                          <span className="text-[var(--text-secondary)]">
-                            {new Date(deal.createdAt).toLocaleDateString()}
-                          </span>
-                          <span
-                            className="rounded-full px-2 py-0.5 text-xs font-medium"
-                            style={{ color: style.color, background: `${style.color}22` }}
+                <div className="mt-4 grid grid-cols-3 gap-3">
+                  <Stat label="Team size" value={`${search.profile.teamSize} people`} />
+                  <Stat label="Budget" value={`₹${search.profile.budgetInr.toLocaleString("en-IN")}/mo`} />
+                  <Stat label="Area" value={search.profile.preferredArea} />
+                </div>
+
+                <div className="mt-4 flex-1 border-t border-[var(--border)] pt-4">
+                  <p className="text-[10px] uppercase tracking-wide text-[var(--text-secondary)]">
+                    Deals{searchDeals.length > 0 ? ` (${searchDeals.length})` : ""}
+                  </p>
+
+                  {searchDeals.length > 0 ? (
+                    <div className="mt-2 space-y-1">
+                      {searchDeals.map((deal) => {
+                        const style = DEAL_STATUS_STYLE[deal.status] ?? { label: deal.status, color: "var(--text-secondary)" };
+                        return (
+                          <Link
+                            key={deal.id}
+                            href={dealHref(deal)}
+                            className="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm hover:bg-[var(--surface-raised)]"
                           >
-                            {style.label}
-                          </span>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
+                            <span className="text-[var(--text-secondary)]">
+                              {new Date(deal.createdAt).toLocaleDateString()}
+                            </span>
+                            <span
+                              className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                              style={{ color: style.color, background: `${style.color}22` }}
+                            >
+                              {style.label}
+                            </span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="mt-1.5 text-xs text-[var(--text-secondary)]">
+                      No deals yet — run this search to generate a shortlist.
+                    </p>
+                  )}
+                </div>
               </div>
             );
           })}

@@ -24,14 +24,19 @@ export default async function ActivityPage() {
           </p>
         </div>
       ) : (
-        <div className="mt-6 space-y-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+        <div className="mt-6 space-y-3">
           {feed.map((entry) => (
-            <div key={entry.id} className="border-b border-[var(--border)] pb-2 pt-2 first:pt-0 last:border-0 last:pb-0">
+            <div
+              key={entry.id}
+              className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 transition hover:border-[var(--accent)]/40"
+            >
               <Link
                 href={`/negotiation/${entry.dealId}`}
-                className="mb-1 inline-block text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--accent)]"
+                className="mb-2 inline-flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-[var(--text-secondary)] hover:text-[var(--accent)]"
               >
-                {entry.dealLabel} · {entry.listingId}
+                {entry.dealLabel}
+                <span className="text-[var(--border)]">·</span>
+                {entry.listingId}
               </Link>
               <TranscriptRow entry={entry} />
             </div>

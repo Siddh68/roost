@@ -79,19 +79,29 @@ export function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="border-l-2 py-2 pl-3 text-xs" style={{ borderColor: kindColor }}>
-      <div className="mb-0.5 flex items-center gap-2">
-        <span className="font-medium" style={{ color: kindColor }}>
-          {kind}
-        </span>
-        {/* toLocaleTimeString() can differ between the server's and the
-            browser's locale/timezone — this is server-rendered once then
-            hydrated, so a literal mismatch here is expected and harmless. */}
-        <span className="text-[var(--text-secondary)]" suppressHydrationWarning>
-          {time}
-        </span>
+    <div className="flex gap-3 border-b border-[var(--border)] py-2.5 text-xs last:border-b-0">
+      <span
+        className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+        style={{ background: kindColor }}
+        aria-hidden="true"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 flex flex-wrap items-center gap-2">
+          <span
+            className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+            style={{ color: kindColor, background: `${kindColor}1f` }}
+          >
+            {kind}
+          </span>
+          {/* toLocaleTimeString() can differ between the server's and the
+              browser's locale/timezone — this is server-rendered once then
+              hydrated, so a literal mismatch here is expected and harmless. */}
+          <span className="text-[10px] text-[var(--text-secondary)]" suppressHydrationWarning>
+            {time}
+          </span>
+        </div>
+        {children}
       </div>
-      {children}
     </div>
   );
 }

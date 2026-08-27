@@ -59,164 +59,196 @@ export default function IntakePage() {
   }
 
   return (
-    <div className="mx-auto max-w-xl">
+    <div>
       <h1 className="text-2xl font-semibold tracking-tight">Find your next office</h1>
       <p className="mt-1 text-sm text-[var(--text-secondary)]">
         Tell us about your company and we&apos;ll search, score, and start negotiating on your behalf.
       </p>
 
-      <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-        <Field label="Search name">
-          <input
-            type="text"
-            placeholder="e.g. Mumbai HQ search"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            className="input"
-          />
-        </Field>
-
-        <div className="grid grid-cols-2 gap-4">
-          <Field label={`Team size: ${teamSize}`}>
-            {customTeamSize ? (
-              <>
-                <input
-                  type="number"
-                  min={1}
-                  required
-                  value={teamSize}
-                  onChange={(e) => setTeamSize(Number(e.target.value))}
-                  className="input"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCustomTeamSize(false);
-                    setTeamSize((v) => Math.min(v, 200));
-                  }}
-                  className="mt-1 text-xs text-[var(--accent)] hover:underline"
-                >
-                  Back to slider
-                </button>
-              </>
-            ) : (
-              <>
-                <input
-                  type="range"
-                  min={1}
-                  max={200}
-                  step={1}
-                  value={teamSize}
-                  onChange={(e) => setTeamSize(Number(e.target.value))}
-                  className="w-full accent-[var(--accent)]"
-                />
-                {teamSize >= 200 && (
-                  <button
-                    type="button"
-                    onClick={() => setCustomTeamSize(true)}
-                    className="mt-1 text-xs text-[var(--accent)] hover:underline"
-                  >
-                    Larger team? Enter custom size
-                  </button>
-                )}
-              </>
-            )}
-          </Field>
-          <Field label={`Monthly budget: ₹${budgetInr.toLocaleString("en-IN")}`}>
-            {customBudget ? (
-              <>
-                <input
-                  type="number"
-                  min={1000}
-                  step={1000}
-                  required
-                  value={budgetInr}
-                  onChange={(e) => setBudgetInr(Number(e.target.value))}
-                  className="input"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCustomBudget(false);
-                    setBudgetInr((v) => Math.min(v, 1500000));
-                  }}
-                  className="mt-1 text-xs text-[var(--accent)] hover:underline"
-                >
-                  Back to slider
-                </button>
-              </>
-            ) : (
-              <>
-                <input
-                  type="range"
-                  min={10000}
-                  max={1500000}
-                  step={5000}
-                  value={budgetInr}
-                  onChange={(e) => setBudgetInr(Number(e.target.value))}
-                  className="w-full accent-[var(--accent)]"
-                />
-                {budgetInr >= 1500000 && (
-                  <button
-                    type="button"
-                    onClick={() => setCustomBudget(true)}
-                    className="mt-1 text-xs text-[var(--accent)] hover:underline"
-                  >
-                    Higher budget? Enter exact amount
-                  </button>
-                )}
-              </>
-            )}
+      <form onSubmit={handleSubmit} className="mt-8 max-w-2xl space-y-5">
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+          <h2 className="mb-3 text-sm font-semibold">Basics</h2>
+          <Field label="Search name">
+            <input
+              type="text"
+              placeholder="e.g. Mumbai HQ search"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              className="input"
+            />
           </Field>
         </div>
 
-        <Field label="Preferred area">
-          <select
-            value={preferredArea}
-            onChange={(e) => setPreferredArea(e.target.value)}
-            className="input"
-          >
-            {AREA_OPTIONS.map((area) => (
-              <option key={area} value={area}>
-                {area}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+          <h2 className="mb-4 text-sm font-semibold">Team &amp; budget</h2>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <SliderStat label="Team size" value={`${teamSize} people`}>
+              {customTeamSize ? (
+                <>
+                  <input
+                    type="number"
+                    min={1}
+                    required
+                    value={teamSize}
+                    onChange={(e) => setTeamSize(Number(e.target.value))}
+                    className="input"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomTeamSize(false);
+                      setTeamSize((v) => Math.min(v, 200));
+                    }}
+                    className="mt-1.5 text-xs text-[var(--accent)] hover:underline"
+                  >
+                    Back to slider
+                  </button>
+                </>
+              ) : (
+                <>
+                  <input
+                    type="range"
+                    min={1}
+                    max={200}
+                    step={1}
+                    value={teamSize}
+                    onChange={(e) => setTeamSize(Number(e.target.value))}
+                    className="w-full accent-[var(--accent)]"
+                  />
+                  {teamSize >= 200 && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomTeamSize(true)}
+                      className="mt-1.5 text-xs text-[var(--accent)] hover:underline"
+                    >
+                      Larger team? Enter custom size
+                    </button>
+                  )}
+                </>
+              )}
+            </SliderStat>
 
-        <Field label="Must-haves">
-          <div className="grid grid-cols-2 gap-2">
-            {MUST_HAVE_OPTIONS.map((opt) => (
-              <label
-                key={opt.value}
-                className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
-              >
-                <input
-                  type="checkbox"
-                  checked={mustHaves.includes(opt.value)}
-                  onChange={() => toggleMustHave(opt.value)}
-                  className="accent-[var(--accent)]"
-                />
-                {opt.label}
-              </label>
-            ))}
+            <SliderStat label="Monthly budget" value={`₹${budgetInr.toLocaleString("en-IN")}`}>
+              {customBudget ? (
+                <>
+                  <input
+                    type="number"
+                    min={1000}
+                    step={1000}
+                    required
+                    value={budgetInr}
+                    onChange={(e) => setBudgetInr(Number(e.target.value))}
+                    className="input"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomBudget(false);
+                      setBudgetInr((v) => Math.min(v, 1500000));
+                    }}
+                    className="mt-1.5 text-xs text-[var(--accent)] hover:underline"
+                  >
+                    Back to slider
+                  </button>
+                </>
+              ) : (
+                <>
+                  <input
+                    type="range"
+                    min={10000}
+                    max={1500000}
+                    step={5000}
+                    value={budgetInr}
+                    onChange={(e) => setBudgetInr(Number(e.target.value))}
+                    className="w-full accent-[var(--accent)]"
+                  />
+                  {budgetInr >= 1500000 && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomBudget(true)}
+                      className="mt-1.5 text-xs text-[var(--accent)] hover:underline"
+                    >
+                      Higher budget? Enter exact amount
+                    </button>
+                  )}
+                </>
+              )}
+            </SliderStat>
           </div>
-        </Field>
+        </div>
 
-        <Field label={`Negotiation floor: ${Math.round(priceFloorPct * 100)}% of budget`}>
-          <input
-            type="range"
-            min={0.5}
-            max={1}
-            step={0.01}
-            value={priceFloorPct}
-            onChange={(e) => setPriceFloorPct(Number(e.target.value))}
-            className="w-full accent-[var(--accent)]"
-          />
-          <p className="mt-1 text-xs text-[var(--text-secondary)]">
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+          <h2 className="mb-4 text-sm font-semibold">Location &amp; must-haves</h2>
+          <div className="space-y-4">
+            <Field label="Preferred area">
+              <select
+                value={preferredArea}
+                onChange={(e) => setPreferredArea(e.target.value)}
+                className="input"
+              >
+                {AREA_OPTIONS.map((area) => (
+                  <option key={area} value={area}>
+                    {area}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <div>
+              <p className="mb-1.5 block text-sm font-medium text-[var(--text-secondary)]">Must-haves</p>
+              <div className="grid grid-cols-2 gap-2">
+                {MUST_HAVE_OPTIONS.map((opt) => {
+                  const checked = mustHaves.includes(opt.value);
+                  return (
+                    <label
+                      key={opt.value}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition"
+                      style={{
+                        borderColor: checked ? "color-mix(in srgb, var(--accent) 50%, transparent)" : "var(--border)",
+                        background: checked ? "var(--accent-dim)" : "var(--surface-raised)",
+                        color: checked ? "var(--accent)" : "var(--text-primary)",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleMustHave(opt.value)}
+                        className="accent-[var(--accent)]"
+                      />
+                      {opt.label}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-[var(--accent)]/30 bg-[var(--accent-dim)] p-5">
+          <div className="flex items-center gap-2">
+            <span>🪺</span>
+            <p className="text-xs font-semibold text-[var(--accent)]">AI negotiation strategy</p>
+          </div>
+          <p className="mt-2 text-xs text-[var(--text-secondary)]">
             Offers below this are treated as suspiciously cheap and sanity-checked rather than grabbed outright.
           </p>
-        </Field>
+
+          <div className="mt-4">
+            <p className="text-[10px] uppercase tracking-wide text-[var(--text-secondary)]">Negotiation floor</p>
+            <p className="mt-0.5 text-lg font-semibold text-[var(--accent)]">
+              {Math.round(priceFloorPct * 100)}% of budget
+            </p>
+            <input
+              type="range"
+              min={0.5}
+              max={1}
+              step={0.01}
+              value={priceFloorPct}
+              onChange={(e) => setPriceFloorPct(Number(e.target.value))}
+              className="mt-2 w-full accent-[var(--accent)]"
+            />
+          </div>
+        </div>
 
         {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
 
@@ -234,7 +266,7 @@ export default function IntakePage() {
           width: 100%;
           border-radius: 0.5rem;
           border: 1px solid var(--border);
-          background: var(--surface);
+          background: var(--surface-raised);
           padding: 0.5rem 0.75rem;
           font-size: 0.875rem;
           color: var(--text-primary);
@@ -253,6 +285,24 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <label className="mb-1.5 block text-sm font-medium text-[var(--text-secondary)]">{label}</label>
       {children}
+    </div>
+  );
+}
+
+function SliderStat({
+  label,
+  value,
+  children,
+}: {
+  label: string;
+  value: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wide text-[var(--text-secondary)]">{label}</p>
+      <p className="mt-0.5 text-lg font-semibold">{value}</p>
+      <div className="mt-2">{children}</div>
     </div>
   );
 }

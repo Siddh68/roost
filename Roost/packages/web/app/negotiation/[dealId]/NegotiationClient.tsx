@@ -33,11 +33,20 @@ function StatusBadge({ status }: { status: string }) {
   const style = STATUS_STYLE[status] ?? { label: status, color: "var(--text-secondary)" };
   return (
     <span
-      className="rounded-full px-2 py-0.5 text-xs font-medium"
-      style={{ color: style.color, background: `${style.color}22` }}
+      className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide"
+      style={{ color: style.color, background: `${style.color}1f` }}
     >
       {style.label}
     </span>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wide text-[var(--text-secondary)]">{label}</p>
+      <p className="mt-0.5 text-sm font-medium">{value}</p>
+    </div>
   );
 }
 
@@ -114,47 +123,73 @@ export default function NegotiationClient({
   );
 
   return (
-    <div>
-      <div className="flex items-center justify-between">
+    <div className="pb-10">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Negotiation</h1>
-          <p className="mt-1 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-            Deal status:
+          <div className="mt-2 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+            <span>Deal status</span>
             <StatusBadge status={state.deal.status} />
-          </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          {state.deal.status === "NEGOTIATING" && (
-            <>
-              <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-                <input
-                  type="checkbox"
-                  checked={autoNegotiate}
-                  onChange={(e) => setAutoNegotiate(e.target.checked)}
-                  className="accent-[var(--accent)]"
-                />
-                Live updates
-              </label>
-              <button
-                onClick={tick}
-                disabled={ticking}
-                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm hover:border-[var(--accent)]/40 disabled:opacity-50"
-              >
-                {ticking ? "Refreshing…" : "Refresh now"}
-              </button>
-            </>
-          )}
+        {state.deal.status === "NEGOTIATING" && (
+          <div className="flex items-center gap-3">
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-1.5 text-sm text-[var(--text-secondary)]">
+              <input
+                type="checkbox"
+                checked={autoNegotiate}
+                onChange={(e) => setAutoNegotiate(e.target.checked)}
+                className="accent-[var(--accent)]"
+              />
+              Live updates
+            </label>
+            <button
+              onClick={tick}
+              disabled={ticking}
+              className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-1.5 text-sm font-medium transition hover:border-[var(--accent)]/40 disabled:opacity-50"
+            >
+              {ticking ? "Refreshing…" : "Refresh now"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+          <Stat label="Threads" value={`${state.threads.length}`} />
+        </div>
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+          <Stat
+            label="Negotiating"
+            value={`${state.threads.filter((t) => t.status === "active").length}`}
+          />
+        </div>
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+          <Stat label="Accepted" value={`${acceptedThreads.length}`} />
+        </div>
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+          <Stat
+            label="Escalated"
+            value={`${state.threads.filter((t) => t.status === "escalated").length}`}
+          />
         </div>
       </div>
 
       {acceptedThreads.length > 0 && (
-        <div className="mt-6 rounded-xl border border-[var(--accent)]/40 bg-[var(--accent-dim)] p-5">
-          <p className="text-sm text-[var(--text-secondary)]">Deal reached 🎉</p>
-          <p className="mt-1 text-3xl font-semibold text-[var(--accent)]">
-            {inr(totalSavings)}/month saved
+        <div
+          className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--accent-dim)] p-5"
+          style={{ borderLeft: "3px solid var(--accent)" }}
+        >
+          <div className="flex items-center gap-2">
+            <span>🎉</span>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--accent)]">Deal reached</p>
+          </div>
+          <p className="mt-2 text-3xl font-semibold text-[var(--accent)]">
+            {inr(totalSavings)}
+            <span className="text-base font-normal text-[var(--text-secondary)]">/mo saved</span>
           </p>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">
+          <p className="mt-2 text-sm text-[var(--text-secondary)]">
             {acceptedThreads
               .map((t) => {
                 const l = listingById.get(t.listingId);
@@ -173,20 +208,23 @@ export default function NegotiationClient({
             (a, b) => a.timestamp - b.timestamp
           );
           return (
-            <div key={thread.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-              <div className="flex items-center justify-between">
+            <div key={thread.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 className="font-medium">{listing?.title ?? thread.listingId}</h3>
-                  <p className="text-xs text-[var(--text-secondary)]">
-                    {listing?.area} · asking {inr(thread.askingPriceInr)} · current {inr(thread.currentOfferInr)} ·
-                    round {thread.roundsUsed}
-                  </p>
+                  <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{listing?.area}</p>
                 </div>
                 <StatusBadge status={thread.status} />
               </div>
 
+              <div className="mt-4 grid grid-cols-3 gap-3 border-t border-[var(--border)] pt-4 sm:max-w-xs">
+                <Stat label="Asking" value={inr(thread.askingPriceInr)} />
+                <Stat label="Current offer" value={inr(thread.currentOfferInr)} />
+                <Stat label="Round" value={`${thread.roundsUsed}`} />
+              </div>
+
               {entries.length > 0 && (
-                <div className="mt-3 max-h-72 space-y-1 overflow-y-auto border-t border-[var(--border)] pt-3">
+                <div className="mt-4 max-h-72 overflow-y-auto border-t border-[var(--border)] pt-1">
                   {entries.map((entry) => (
                     <TranscriptRow key={entry.id} entry={entry} />
                   ))}

@@ -48,8 +48,11 @@ export async function middleware(request: NextRequest) {
   return response;
 }
 
-// Protect everything except the login page, the OAuth callback route, and
-// Next's static/internal assets.
+// Protect everything except the login page, the OAuth callback route, the
+// public marketing landing page at the exact root path (app/page.tsx itself
+// still redirects a signed-in visitor on to /searches — this only stops
+// middleware from bouncing a signed-OUT visitor away before that page ever
+// renders), and Next's static/internal assets.
 export const config = {
-  matcher: ["/((?!login|auth/callback|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!login|auth/callback|_next/static|_next/image|favicon.ico|$).*)"],
 };

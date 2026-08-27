@@ -21,10 +21,15 @@ export default async function AdminLandlordsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Landlords</h1>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Landlords</h1>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">
+            {landlords.length} distinct landlord contact(s) across all negotiations.
+          </p>
+        </div>
         <div className="flex items-center gap-4">
-          <Link href="/admin/clients" className="text-sm text-[var(--accent)] hover:opacity-80">
+          <Link href="/admin/clients" className="text-sm font-medium text-[var(--accent)] hover:opacity-80">
             View clients →
           </Link>
           <Link href="/admin" className="text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
@@ -32,26 +37,26 @@ export default async function AdminLandlordsPage() {
           </Link>
         </div>
       </div>
-      <p className="mt-1 text-sm text-[var(--text-secondary)]">
-        {landlords.length} distinct landlord contact(s) across all negotiations.
-      </p>
 
-      <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--border)]">
+      <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--surface)]">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--text-secondary)]">
-              <th className="px-4 py-2.5 font-medium">Landlord email</th>
-              <th className="px-4 py-2.5 font-medium">Threads</th>
-              <th className="px-4 py-2.5 font-medium">Status breakdown</th>
-              <th className="px-4 py-2.5 font-medium">Listings contacted about</th>
+            <tr className="border-b border-[var(--border)] text-left text-[10px] uppercase tracking-wide text-[var(--text-secondary)]">
+              <th className="px-4 py-3 font-medium">Landlord email</th>
+              <th className="px-4 py-3 font-medium">Threads</th>
+              <th className="px-4 py-3 font-medium">Status breakdown</th>
+              <th className="px-4 py-3 font-medium">Listings contacted about</th>
             </tr>
           </thead>
           <tbody>
             {landlords.map((landlord) => (
-              <tr key={landlord.email} className="border-b border-[var(--border)] last:border-0">
-                <td className="px-4 py-2.5">{landlord.email}</td>
-                <td className="px-4 py-2.5 text-[var(--text-secondary)]">{landlord.threadCount}</td>
-                <td className="px-4 py-2.5">
+              <tr
+                key={landlord.email}
+                className="border-b border-[var(--border)] transition-colors last:border-0 hover:bg-[var(--surface-raised)]"
+              >
+                <td className="px-4 py-3 font-medium">{landlord.email}</td>
+                <td className="px-4 py-3 text-[var(--text-secondary)]">{landlord.threadCount}</td>
+                <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1">
                     {(Object.keys(landlord.statusCounts) as ThreadStatus[])
                       .filter((status) => landlord.statusCounts[status] > 0)
@@ -60,8 +65,12 @@ export default async function AdminLandlordsPage() {
                         return (
                           <span
                             key={status}
-                            className="rounded-full px-2 py-0.5 text-xs font-medium"
-                            style={{ color: style.color, background: `${style.color}22` }}
+                            className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
+                            style={{
+                              color: style.color,
+                              background: `${style.color}1a`,
+                              border: `1px solid ${style.color}33`,
+                            }}
                           >
                             {style.label} × {landlord.statusCounts[status]}
                           </span>
@@ -69,7 +78,7 @@ export default async function AdminLandlordsPage() {
                       })}
                   </div>
                 </td>
-                <td className="px-4 py-2.5 text-[var(--text-secondary)]">
+                <td className="px-4 py-3 text-[var(--text-secondary)]">
                   {landlord.listingIds
                     .map((id) => listingsById.get(id)?.title ?? id)
                     .join(", ")}
