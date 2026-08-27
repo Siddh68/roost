@@ -99,6 +99,13 @@ export default function Sidebar({ user }: { user: SessionUser | null }) {
       </div>
 
       <div className="space-y-2 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+        <Link
+          href="/about"
+          className="block px-2 text-xs transition-colors hover:text-[var(--text-primary)]"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          About Roost
+        </Link>
         <p className="truncate px-2 text-xs" style={{ color: "var(--text-secondary)" }}>
           {user.email}
         </p>

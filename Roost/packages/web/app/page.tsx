@@ -24,7 +24,7 @@ const FEATURES = [
 ];
 
 const FOOTER_LINKS = [
-  { label: "About", href: "#" },
+  { label: "About", href: "/about" },
   { label: "Contact", href: "#" },
   { label: "Terms", href: "#" },
   { label: "Privacy", href: "#" },
