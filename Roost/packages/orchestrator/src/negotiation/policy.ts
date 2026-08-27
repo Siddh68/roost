@@ -55,7 +55,13 @@ export function openingCounterPriceInr(
   profile: CompanyProfile
 ): number {
   const raw = Math.round(askingPriceInr * (1 - OPENING_DISCOUNT_PCT));
-  return clamp(raw, priceFloor(profile), priceCeiling(profile));
+  // priceFloor/priceCeiling are derived purely from the company's budget, with
+  // no idea what any given listing actually asks. For a listing priced well
+  // under budget, clamping up to that budget-derived floor produced an
+  // opening "counter" HIGHER than the landlord's own asking price — offering
+  // more than what was asked for. We should never offer above the asking
+  // price, so the effective ceiling for this listing is whichever is lower.
+  return clamp(raw, priceFloor(profile), Math.min(priceCeiling(profile), askingPriceInr));
 }
 
 export interface PolicyContext {
@@ -131,7 +137,10 @@ export function decideMove(ctx: PolicyContext): PolicyDecision {
   }
 
   // intent === "counter_offer"
-  const ceiling = priceCeiling(ctx.profile);
+  // Same reasoning as openingCounterPriceInr: never let our own price move
+  // above the landlord's original asking price, even when the budget-derived
+  // ceiling is higher.
+  const ceiling = Math.min(priceCeiling(ctx.profile), ctx.askingPriceInr);
   const floor = priceFloor(ctx.profile);
 
   if (ctx.offeredPriceInr == null) {
