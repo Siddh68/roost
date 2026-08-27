@@ -1,9 +1,5 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import type { Listing, MustHave } from "../types.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import rawListings from "../data/listings.seed.json" with { type: "json" };
 
 export interface SearchListingsQuery {
   area?: string;
@@ -23,9 +19,7 @@ const ACTIVE_LISTING_ID_PREFIX = "mum-";
 
 export function loadListings(): Listing[] {
   if (!cachedListings) {
-    const path = join(__dirname, "..", "data", "listings.seed.json");
-    const all = JSON.parse(readFileSync(path, "utf-8")) as Listing[];
-    cachedListings = all.filter((l) => l.id.startsWith(ACTIVE_LISTING_ID_PREFIX));
+    cachedListings = (rawListings as Listing[]).filter((l) => l.id.startsWith(ACTIVE_LISTING_ID_PREFIX));
   }
   return cachedListings;
 }

@@ -1,18 +1,13 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import type { CompanyProfile, Listing, MetroStation, ScoreResult } from "../types.js";
 import { scoreListings as runScoreEngine } from "../scoring/scoreEngine.js";
 import { loadListings } from "./searchListings.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import rawStations from "../data/metroStations.seed.json" with { type: "json" };
 
 let cachedStations: MetroStation[] | null = null;
 
 export function loadMetroStations(): MetroStation[] {
   if (!cachedStations) {
-    const path = join(__dirname, "..", "data", "metroStations.seed.json");
-    cachedStations = JSON.parse(readFileSync(path, "utf-8")) as MetroStation[];
+    cachedStations = rawStations as MetroStation[];
   }
   return cachedStations;
 }

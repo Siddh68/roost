@@ -43,10 +43,11 @@ function LoginContent() {
 
   async function handleGoogle() {
     const supabase = createClient();
-    await supabase.auth.signInWithOAuth({
+    const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(callbackUrl)}` },
     });
+    if (error) setError(error.message);
   }
 
   async function handleSubmit(e: React.FormEvent) {
