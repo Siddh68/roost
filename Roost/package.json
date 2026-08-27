@@ -6,7 +6,8 @@
     "packages/*"
   ],
   "scripts": {
-    "score:cli": "npm run score:cli --workspace=packages/mcp-server"
+    "score:cli": "npm run score:cli --workspace=packages/mcp-server",
+    "postinstall": "npm run prisma:generate --workspace=packages/orchestrator"
   },
   "dependencies": {
     "tsx": "^4.16.2"

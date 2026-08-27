@@ -1,13 +1,17 @@
-// Drives one round of the negotiation loop on demand: the test-only landlord
-// auto-responder checks for new mail and replies, then the agent polls and
-// reacts. Called on an interval by the negotiation page's client component
-// so the whole demo runs from one browser tab, no separate terminals needed.
+// Refreshes the negotiation view from the database. Actually driving the
+// negotiation forward (polling Gmail, classifying replies, deciding moves)
+// is owned exclusively by the always-on poll-all loop in agent.js — that
+// loop persists ML model weights and dedup state to local files on its own
+// host, so a second, independent driver here would both race it (two
+// actors reacting to the same landlord reply) and crash outright on a
+// read-only/serverless filesystem like Vercel's. This route used to call
+// pollDealOnce/runLandlordAutoResponderOnce directly for a single-browser-tab
+// demo mode from before the always-on agent existed; now it just re-reads
+// current state so the page reflects what the background agent has done.
 
 import { NextRequest, NextResponse } from "next/server";
 import { loadListings } from "@roost/mcp-server/tools/searchListings";
 import { getDeal, getThreadsByDeal, getTranscript } from "@roost/orchestrator/db/store";
-import { pollDealOnce } from "@roost/orchestrator/negotiation/stateMachine";
-import { runLandlordAutoResponderOnce } from "@roost/orchestrator/negotiation/landlordAutoResponder";
 import { requireDealAccess } from "../../../../../lib/authz";
 
 export async function POST(
@@ -23,12 +27,7 @@ export async function POST(
     return NextResponse.json({ error: "Deal not found." }, { status: 404 });
   }
 
-  if (deal.status === "NEGOTIATING") {
-    await runLandlordAutoResponderOnce();
-    await pollDealOnce(dealId);
-  }
-
-  const updatedDeal = (await getDeal(dealId))!;
+  const updatedDeal = deal;
   const threads = await getThreadsByDeal(dealId);
   const transcript = await getTranscript(dealId);
   const listingIds = new Set(threads.map((t) => t.listingId));

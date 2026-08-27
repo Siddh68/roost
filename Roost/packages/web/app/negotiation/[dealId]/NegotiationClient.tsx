@@ -126,14 +126,14 @@ export default function NegotiationClient({
                   onChange={(e) => setAutoNegotiate(e.target.checked)}
                   className="accent-[var(--accent)]"
                 />
-                Auto-negotiate
+                Live updates
               </label>
               <button
                 onClick={tick}
                 disabled={ticking}
                 className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm hover:border-[var(--accent)]/40 disabled:opacity-50"
               >
-                {ticking ? "Polling…" : "Poll now"}
+                {ticking ? "Refreshing…" : "Refresh now"}
               </button>
             </>
           )}
