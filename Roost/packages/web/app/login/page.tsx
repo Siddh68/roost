@@ -28,6 +28,29 @@ function GoogleIcon() {
   );
 }
 
+interface PasswordStrength {
+  score: 0 | 1 | 2 | 3 | 4;
+  label: string;
+  color: string;
+}
+
+function passwordStrength(password: string): PasswordStrength {
+  let score = 0;
+  if (password.length >= 8) score++;
+  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score++;
+  if (/[0-9]/.test(password)) score++;
+  if (/[^a-zA-Z0-9]/.test(password)) score++;
+
+  const levels: PasswordStrength[] = [
+    { score: 0, label: "Very weak", color: "var(--danger)" },
+    { score: 1, label: "Weak", color: "var(--danger)" },
+    { score: 2, label: "Fair", color: "var(--warn)" },
+    { score: 3, label: "Good", color: "var(--info)" },
+    { score: 4, label: "Strong", color: "var(--accent)" },
+  ];
+  return levels[score];
+}
+
 function LoginContent() {
   const router = useRouter();
   const params = useSearchParams();
@@ -35,11 +58,16 @@ function LoginContent() {
   const oauthError = params.get("error");
 
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  const strength = passwordStrength(password);
+  const passwordsMismatch = mode === "signup" && confirmPassword.length > 0 && password !== confirmPassword;
 
   async function handleGoogle() {
     const supabase = createClient();
@@ -67,10 +95,18 @@ function LoginContent() {
       router.push(callbackUrl);
       router.refresh();
     } else {
+      if (password !== confirmPassword) {
+        setError("Passwords don't match.");
+        setSubmitting(false);
+        return;
+      }
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(callbackUrl)}` },
+        options: {
+          data: { full_name: name },
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(callbackUrl)}`,
+        },
       });
       if (error) {
         setError(error.message);
@@ -110,6 +146,19 @@ function LoginContent() {
       )}
 
       <form onSubmit={handleSubmit} className="mt-6 w-full space-y-3 text-left">
+        {mode === "signup" && (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Name</label>
+            <input
+              type="text"
+              required
+              autoComplete="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="login-input"
+            />
+          </div>
+        )}
         <div>
           <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Email</label>
           <input
@@ -132,13 +181,46 @@ function LoginContent() {
             onChange={(e) => setPassword(e.target.value)}
             className="login-input"
           />
+          {mode === "signup" && password.length > 0 && (
+            <div className="mt-1.5">
+              <div className="flex h-1 gap-1">
+                {[0, 1, 2, 3].map((i) => (
+                  <span
+                    key={i}
+                    className="flex-1 rounded-full transition-colors"
+                    style={{
+                      background: i < strength.score ? strength.color : "var(--border)",
+                    }}
+                  />
+                ))}
+              </div>
+              <p className="mt-1 text-xs" style={{ color: strength.color }}>
+                {strength.label}
+              </p>
+            </div>
+          )}
         </div>
+        {mode === "signup" && (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--text-secondary)]">Confirm password</label>
+            <input
+              type="password"
+              required
+              minLength={6}
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="login-input"
+            />
+            {passwordsMismatch && <p className="mt-1 text-xs text-[var(--danger)]">Passwords don&apos;t match.</p>}
+          </div>
+        )}
 
         {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
 
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || (mode === "signup" && passwordsMismatch)}
           className="w-full rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[#06210f] transition hover:opacity-90 disabled:opacity-50"
         >
           {submitting ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
@@ -150,6 +232,7 @@ function LoginContent() {
           setMode(mode === "signin" ? "signup" : "signin");
           setError(null);
           setMessage(null);
+          setConfirmPassword("");
         }}
         className="mt-3 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
       >

@@ -19,6 +19,7 @@ import {
 import {
   createThread,
   getDeal,
+  getDealOwnerEmail,
   getActiveThreadsByDeal,
   updateThread,
   updateDealStatus,
@@ -46,6 +47,8 @@ import {
   closedLostEmail,
   clientDealWonEmail,
   clientDealLostEmail,
+  clientOutreachStartedEmail,
+  clientMoveUpdateEmail,
   postAcceptanceAckEmail,
   priceChangeHoldingReplyEmail,
   priceChangeOverBudgetEmail,
@@ -111,6 +114,30 @@ export function subjectFor(listing: Listing): string {
   return `Office space inquiry — ${listing.title} [ref:${listing.id}]`;
 }
 
+/**
+ * Sends a standalone update email to the account that owns this deal, for
+ * every negotiation move — but only for deals created on the website. A
+ * deal that came in through the email-intake pipeline already has a
+ * registered clientThreadRegistry entry and gets its own (threaded, reply-
+ * into-the-original-email) notifications from clientIntake.ts/the WON/LOST
+ * path below; sending this too would double them up. Failures here are
+ * logged and swallowed — a notification email failing must never break the
+ * actual negotiation it's reporting on.
+ */
+async function notifyDealOwner(dealId: string, subject: string, body: string): Promise<void> {
+  try {
+    const clientThread = await getDealClientThread(dealId);
+    if (clientThread) return;
+
+    const ownerEmail = await getDealOwnerEmail(dealId);
+    if (!ownerEmail) return;
+
+    await sendEmail({ account: "agent", to: ownerEmail, subject, body });
+  } catch (err) {
+    console.error(`[stateMachine] owner notification failed for deal ${dealId}:`, err);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Outreach: initial cold emails to the top N shortlisted listings.
 // ---------------------------------------------------------------------------
@@ -150,6 +177,11 @@ export async function startOutreach(dealId: string, listingIds: string[]): Promi
   }
 
   await updateDealStatus(dealId, "NEGOTIATING");
+  await notifyDealOwner(
+    dealId,
+    "We've started negotiating on your shortlist",
+    clientOutreachStartedEmail(listingIds.length)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -307,9 +339,6 @@ async function notifyClientOnResolution(dealId: string, statusBefore: Deal["stat
   if (!dealNow || dealNow.status === statusBefore) return; // no transition this pass
   if (dealNow.status !== "WON" && dealNow.status !== "LOST") return;
 
-  const clientThread = await getDealClientThread(dealId);
-  if (!clientThread) return;
-
   let body: string;
   if (dealNow.status === "WON") {
     const threads = await getThreadsByDeal(dealId);
@@ -324,17 +353,26 @@ async function notifyClientOnResolution(dealId: string, statusBefore: Deal["stat
   } else {
     body = clientDealLostEmail();
   }
+  const subject = dealNow.status === "WON" ? "Deal reached" : "Update on your office search";
 
-  const sent = await sendEmail({
-    account: "agent",
-    to: clientThread.clientEmail,
-    cc: clientThread.cc,
-    subject: dealNow.status === "WON" ? "Deal reached" : "Update on your office search",
-    body,
-    threadId: clientThread.threadId,
-    inReplyToMessageId: clientThread.lastMessageId,
-  });
-  await updateLastClientMessageId(dealId, sent.messageId);
+  const clientThread = await getDealClientThread(dealId);
+  if (clientThread) {
+    const sent = await sendEmail({
+      account: "agent",
+      to: clientThread.clientEmail,
+      cc: clientThread.cc,
+      subject,
+      body,
+      threadId: clientThread.threadId,
+      inReplyToMessageId: clientThread.lastMessageId,
+    });
+    await updateLastClientMessageId(dealId, sent.messageId);
+    return;
+  }
+
+  // No email-intake thread — this deal was created on the website, so send
+  // a standalone email to the account owner instead of replying in a thread.
+  await notifyDealOwner(dealId, subject, body);
 }
 
 async function pollThread(deal: Deal, thread: NegotiationThread): Promise<boolean> {
@@ -507,6 +545,11 @@ async function act(args: {
         type: "response_sent",
         payload: { action: "accept", body, finalPriceInr: decision.finalPriceInr },
       });
+      await notifyDealOwner(
+        deal.id,
+        `Deal reached — ${listing.title}`,
+        clientMoveUpdateEmail({ listing, action: "accept", finalPriceInr: decision.finalPriceInr })
+      );
       break;
     }
 
@@ -535,6 +578,16 @@ async function act(args: {
         type: "response_sent",
         payload: { action: "counter", body, counterPriceInr: decision.counterPriceInr },
       });
+      await notifyDealOwner(
+        deal.id,
+        `Countered on ${listing.title}`,
+        clientMoveUpdateEmail({
+          listing,
+          action: "counter",
+          landlordOfferedInr: args.nextLastLandlordOfferInr,
+          counterPriceInr: decision.counterPriceInr,
+        })
+      );
       break;
     }
 
@@ -548,6 +601,11 @@ async function act(args: {
         type: "response_sent",
         payload: { action: "answer_info", body },
       });
+      await notifyDealOwner(
+        deal.id,
+        `Update on ${listing.title}`,
+        clientMoveUpdateEmail({ listing, action: "answer_info" })
+      );
       break;
     }
 
@@ -561,6 +619,11 @@ async function act(args: {
         type: "response_sent",
         payload: { action: "closed_lost", body },
       });
+      await notifyDealOwner(
+        deal.id,
+        `Closed — ${listing.title}`,
+        clientMoveUpdateEmail({ listing, action: "closed_lost" })
+      );
       break;
     }
 
@@ -577,6 +640,11 @@ async function act(args: {
         type: "stop_condition",
         payload: { reason: decision.action, reasoning: decision.reasoning },
       });
+      await notifyDealOwner(
+        deal.id,
+        `Needs your input — ${listing.title}`,
+        clientMoveUpdateEmail({ listing, action: "paused", reasoning: decision.reasoning })
+      );
       break;
     }
   }

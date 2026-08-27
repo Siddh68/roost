@@ -160,6 +160,59 @@ Best,
 The Roost team`;
 }
 
+/** Sent once, right after outreach goes out to every shortlisted landlord for a deal created on the website (not via the email-intake pipeline, which already covers this in clientShortlistEmail). */
+export function clientOutreachStartedEmail(listingCount: number): string {
+  return `Hi,
+
+We've reached out to ${listingCount} landlord${listingCount === 1 ? "" : "s"} on your shortlist and started negotiating on your behalf. You'll get an email here every time there's real movement on any of them — a counter-offer, an acceptance, or anything that needs your input.
+
+Best,
+The Roost team`;
+}
+
+/** Sent after every landlord reply the agent processes on one listing — one email per move, describing what the landlord said and what Roost did about it. */
+export function clientMoveUpdateEmail(args: {
+  listing: Listing;
+  action: "accept" | "counter" | "answer_info" | "closed_lost" | "paused";
+  landlordOfferedInr?: number | null;
+  counterPriceInr?: number;
+  finalPriceInr?: number;
+  reasoning?: string;
+}): string {
+  const { listing, action, landlordOfferedInr, counterPriceInr, finalPriceInr, reasoning } = args;
+  const heading = `${listing.title} (${listing.area})`;
+
+  let body: string;
+  switch (action) {
+    case "accept":
+      body = `Good news — the landlord agreed, and we've locked in ${inr(finalPriceInr ?? 0)}/month.`;
+      break;
+    case "counter":
+      body = `The landlord ${
+        landlordOfferedInr != null ? `offered ${inr(landlordOfferedInr)}/month` : "replied"
+      }, so we countered at ${inr(counterPriceInr ?? 0)}/month. We'll let you know as soon as they respond.`;
+      break;
+    case "answer_info":
+      body = `The landlord had a question, so we answered it on your behalf. Negotiation is still active.`;
+      break;
+    case "closed_lost":
+      body = `We declined the landlord's terms — they wouldn't move within your budget, so we closed this thread rather than accept a bad deal.`;
+      break;
+    case "paused":
+      body = `We've paused this thread and need your input: ${reasoning ?? "it hit a limit we don't override automatically."}`;
+      break;
+  }
+
+  return `Hi,
+
+Update on ${heading}:
+
+${body}
+
+Best,
+The Roost team`;
+}
+
 /** Sent for any follow-up message a client sends after their intake is already processed and outreach is underway — keeps every reply answered without re-running intake or duplicating outreach. */
 export function clientFollowUpAckEmail(): string {
   return `Hi,
