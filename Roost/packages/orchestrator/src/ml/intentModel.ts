@@ -100,8 +100,17 @@ export async function classifyIntent(
   if (finalTone === "decline") {
     intent = "reject";
   } else if (price != null) {
+    // A price is authoritative over tone here: "At last my price would be
+    // ₹X" reads as agreement-toned (settling, conclusive language) but
+    // states the LANDLORD's own number, not confirmation of ours — treating
+    // any agreement-toned message with a price as an accept, regardless of
+    // whether that price actually matches what we offered, silently closed
+    // deals at the wrong price and sent landlords a confirmation citing our
+    // old offer instead of the number they'd just asked for. Only a price
+    // that actually matches our last offer counts as a real acceptance;
+    // anything else with a stated price is a counter, whatever the tone.
     const closeToOurOffer = Math.abs(price - ourLastOfferInr) / ourLastOfferInr < 0.01;
-    intent = finalTone === "agreement" || closeToOurOffer ? "accept" : "counter_offer";
+    intent = closeToOurOffer ? "accept" : "counter_offer";
   } else if (finalTone === "agreement") {
     intent = "accept";
   } else if (finalTone === "question") {
