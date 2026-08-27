@@ -33,7 +33,7 @@ await new Promise((r) => setTimeout(r, 8000));
 
 console.log("\n3. Landlord discovery poll (no threadIds — whole inbox scan)...");
 const discovered = await checkInbox({ account: "landlord", sinceTimestamp: t0 });
-const found = discovered.find((m) => m.from.toLowerCase().includes("siddhjain68"));
+const found = discovered.find((m) => m.from.toLowerCase().includes(accountEmail("agent").toLowerCase()));
 if (!found) {
   console.error("   FAILED: landlord did not see the outreach message.");
   console.log("   all discovered:", discovered);

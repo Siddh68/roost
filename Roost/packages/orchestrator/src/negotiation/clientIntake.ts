@@ -6,7 +6,7 @@
 // to the client with the shortlist, and kicks off landlord outreach so the
 // whole thing is live within one poll cycle, no human in the loop.
 
-import { sendEmail, checkInbox, readThread } from "@roost/mcp-server/tools/emailAgent";
+import { sendEmail, checkInbox, readThread, accountEmail } from "@roost/mcp-server/tools/emailAgent";
 import { scoreListing } from "@roost/mcp-server/tools/scoreListing";
 import { loadListings } from "@roost/mcp-server/tools/searchListings";
 import { getOrCreateClientProfile, createCompanyProfile, createDeal, listDealsByUser, updateThread } from "../db/store.js";
@@ -107,7 +107,7 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
     const senderName = extractSenderName(latest.from);
 
     // Skip our own sent messages (the initial ask, shortlist reply, etc.) surfacing back in discovery.
-    if (senderEmail.includes("siddhjain68")) continue;
+    if (senderEmail === accountEmail("agent").toLowerCase()) continue;
 
     // Already processed this thread's intake — any further message is a
     // follow-up, not a fresh submission. Acknowledge it so nothing goes

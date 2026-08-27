@@ -14,6 +14,7 @@ import {
   sendEmail,
   checkInbox,
   readThread,
+  accountEmail,
   type ThreadMessage,
 } from "@roost/mcp-server/tools/emailAgent";
 import {
@@ -246,8 +247,9 @@ export async function pollAcceptedThreads(dealId: string): Promise<number> {
     // short and price-free ("done", "ok", "let me know") that would
     // otherwise bury it — scan every genuinely new incoming message this
     // cycle (not just the last one) for the most recent price mention.
+    const agentEmail = accountEmail("agent").toLowerCase();
     const newIncoming = allMessages.filter(
-      (m) => m.date > previousPolledAt && !m.from.toLowerCase().includes("siddhjain68")
+      (m) => m.date > previousPolledAt && !m.from.toLowerCase().includes(agentEmail)
     );
     let revisedPrice: number | null = null;
     for (let i = newIncoming.length - 1; i >= 0; i--) {
