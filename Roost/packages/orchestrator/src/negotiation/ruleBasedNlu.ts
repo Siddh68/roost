@@ -6,11 +6,25 @@
 
 import type { ToneLabel } from "../ml/trainingData.js";
 
-/** Matches ₹1,50,000 / Rs. 150000 / INR 150000 / "150000/month" / "1.5 lakh per month" etc. */
+/**
+ * Matches ₹1,50,000 / Rs. 150000 / INR 150000 / "150000/month" / "1.5 lakh
+ * per month" / bare "25 lakh" / bare "25,00,000" etc.
+ *
+ * The last two patterns exist because real replies are often this casual —
+ * "Yea 25,00,000 works for me" has no currency symbol and no "/month"
+ * suffix. Confirmed live: without them, that exact message fell through to
+ * null, the tone classifier read "works for me" as agreement, and the
+ * agent accepted the deal at its OWN last offer instead of the landlord's
+ * actual (much higher) number. Indian comma-grouping (2-digit groups after
+ * the first) is itself an unambiguous rupee signal, so a bare number
+ * shaped like ₹X,YY,ZZZ is trusted without needing a currency marker.
+ */
 export function extractPriceInr(text: string): number | null {
   const patterns = [
     /(?:₹|Rs\.?|INR|rupees)\s*([\d,]+(?:\.\d+)?)\s*(lakh|lacs?|l)?/i,
     /([\d,]+(?:\.\d+)?)\s*(lakh|lacs?|l)?\s*(?:per\s*month|\/\s*month|pm\b|monthly|rupees)/i,
+    /\b([\d,]+(?:\.\d+)?)\s*(lakh|lacs?)\b/i,
+    /\b(\d{1,2}(?:,\d{2})+,\d{3})\b/,
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);

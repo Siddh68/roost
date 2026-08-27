@@ -141,6 +141,34 @@ function extractPlainTextBody(payload: gmail_v1.Schema$MessagePart | undefined):
   return "";
 }
 
+// Reply bodies from Gmail include the full quoted history of the thread
+// below the sender's new text (e.g. "On Thu, 27 Aug 2026 ... wrote: > ...").
+// Every downstream consumer of a message body — price extraction, tone
+// classification, client-intake parsing — used to scan that quoted history
+// too, with no way to tell an old quoted number/phrase from something the
+// sender actually just wrote. Confirmed live: a landlord replied "Yea
+// 25,00,000 works for me", but our own quoted opening offer further down
+// the same email ("₹2,50,000/month") matched the price regex first, so the
+// agent accepted the deal at 1/10th the price the landlord actually named.
+// Stripping the quoted tail at the source, once, fixes every caller at once.
+const QUOTE_BOUNDARY_PATTERNS = [
+  /^[ \t]*On .{0,150}wrote:[ \t]*$/im, // Gmail/Apple Mail: "On <date>, <name> wrote:"
+  /^-{2,}\s*Original Message\s*-{2,}/im, // Outlook: "-----Original Message-----"
+  /^From:.{0,200}\r?\n[ \t]*Sent:/im, // Outlook header block
+  /^[ \t]*>/m, // first blockquoted line
+];
+
+function stripQuotedReplyText(body: string): string {
+  let cutIndex = body.length;
+  for (const pattern of QUOTE_BOUNDARY_PATTERNS) {
+    const match = body.match(pattern);
+    if (match && match.index != null && match.index < cutIndex) {
+      cutIndex = match.index;
+    }
+  }
+  return body.slice(0, cutIndex).trim();
+}
+
 /**
  * RFC 2047 "encoded word" for header text — raw UTF-8 bytes in a header
  * (e.g. the em dash in "Office space inquiry — ...") are not strictly
@@ -312,7 +340,7 @@ async function readThreadReal(args: ReadThreadArgs): Promise<ThreadMessage[]> {
       cc: headerValue(headers, "Cc"),
       subject: headerValue(headers, "Subject") ?? "",
       date: Number(message.internalDate ?? "0"),
-      body: extractPlainTextBody(message.payload),
+      body: stripQuotedReplyText(extractPlainTextBody(message.payload)),
     };
   });
 }
