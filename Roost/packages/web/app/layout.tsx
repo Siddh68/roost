@@ -20,7 +20,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en">
       <body className="min-h-screen bg-[var(--background)] text-[var(--text-primary)]">
         {user && <Sidebar user={user} />}
-        <main className={user ? "ml-60 px-8 py-8" : ""}>
+        <main className={user ? "px-4 py-6 sm:px-6 lg:ml-60 lg:px-8 lg:py-8" : ""}>
           <div className={user ? "mx-auto max-w-5xl" : ""}>{children}</div>
         </main>
         {agentEmail && <EmailAgentButton agentEmail={agentEmail} />}

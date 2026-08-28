@@ -79,13 +79,20 @@ export default function EmailAgentButton({ agentEmail }: { agentEmail: string })
       <style>{`
         .email-agent-root {
           position: fixed;
-          bottom: 1.75rem;
-          right: 1.75rem;
+          bottom: 1.25rem;
+          right: 1.25rem;
           z-index: 50;
           display: flex;
           flex-direction: column;
           align-items: flex-end;
           gap: 0.875rem;
+          max-width: calc(100vw - 2.5rem);
+        }
+        @media (min-width: 640px) {
+          .email-agent-root {
+            bottom: 1.75rem;
+            right: 1.75rem;
+          }
         }
         .email-agent-trigger {
           display: flex;
@@ -133,7 +140,7 @@ export default function EmailAgentButton({ agentEmail }: { agentEmail: string })
           border: 2px solid var(--background);
         }
         .email-agent-card {
-          width: 18.5rem;
+          width: min(18.5rem, calc(100vw - 2.5rem));
           border-radius: 1rem;
           border: 1px solid var(--border);
           border-left: 3px solid var(--accent);

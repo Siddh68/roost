@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "../lib/supabase/client";
@@ -44,18 +45,45 @@ function AdminIcon() {
   );
 }
 
+function MenuIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const NAV_ITEMS = [
   { href: "/searches", label: "Searches", icon: SearchIcon },
   { href: "/history", label: "History", icon: HistoryIcon },
   { href: "/activity", label: "Activity", icon: ActivityIcon },
 ];
 
-function NavItem({ href, label, Icon }: { href: string; label: string; Icon: () => React.ReactElement }) {
+function NavItem({
+  href,
+  label,
+  Icon,
+  onNavigate,
+}: {
+  href: string;
+  label: string;
+  Icon: () => React.ReactElement;
+  onNavigate: () => void;
+}) {
   const pathname = usePathname();
   const active = pathname === href || pathname.startsWith(`${href}/`);
   return (
     <Link
       href={href}
+      onClick={onNavigate}
       className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors"
       style={{
         color: active ? "var(--accent)" : "var(--text-secondary)",
@@ -71,6 +99,14 @@ function NavItem({ href, label, Icon }: { href: string; label: string; Icon: () 
 
 export default function Sidebar({ user }: { user: SessionUser | null }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+
+  // Belt-and-suspenders: also close on any route change (back/forward,
+  // programmatic navigation) beyond the explicit onClick handlers below.
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
 
   async function handleSignOut() {
     const supabase = createClient();
@@ -82,41 +118,89 @@ export default function Sidebar({ user }: { user: SessionUser | null }) {
   if (!user) return null;
 
   return (
-    <nav
-      className="fixed left-0 top-0 flex h-screen w-60 flex-col border-r px-3 py-5"
-      style={{ background: "var(--surface)", borderColor: "var(--border)" }}
-    >
-      <Link href="/searches" className="mb-6 flex items-center gap-2 px-2 font-semibold tracking-tight">
-        <span className="text-xl">🪺</span>
-        <span>Roost</span>
-      </Link>
-
-      <div className="flex-1 space-y-1">
-        {NAV_ITEMS.map((item) => (
-          <NavItem key={item.href} href={item.href} label={item.label} Icon={item.icon} />
-        ))}
-        {user.role === "ADMIN" && <NavItem href="/admin" label="Admin" Icon={AdminIcon} />}
-      </div>
-
-      <div className="space-y-2 border-t pt-3" style={{ borderColor: "var(--border)" }}>
-        <Link
-          href="/about"
-          className="block px-2 text-xs transition-colors hover:text-[var(--text-primary)]"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          About Roost
+    <>
+      {/* Mobile top bar — the only way to reopen the drawer once it's closed */}
+      <div
+        className="sticky top-0 z-30 flex items-center justify-between border-b px-4 py-3 lg:hidden"
+        style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+      >
+        <Link href="/searches" className="flex items-center gap-2 font-semibold tracking-tight">
+          <span className="text-lg">🪺</span>
+          <span>Roost</span>
         </Link>
-        <p className="truncate px-2 text-xs" style={{ color: "var(--text-secondary)" }}>
-          {user.email}
-        </p>
         <button
-          onClick={handleSignOut}
-          className="w-full rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-[var(--surface-raised)]"
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label="Open navigation menu"
+          className="rounded-lg p-1.5 transition-colors hover:bg-[var(--surface-raised)]"
           style={{ color: "var(--text-secondary)" }}
         >
-          Sign out
+          <MenuIcon />
         </button>
       </div>
-    </nav>
+
+      {/* Backdrop, mobile only, while the drawer is open */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 lg:hidden"
+          onClick={() => setOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Drawer on mobile (off-canvas, slides in), persistent sidebar on desktop */}
+      <nav
+        className={`fixed left-0 top-0 z-50 flex h-screen w-64 max-w-[80vw] flex-col border-r px-3 py-5 transition-transform duration-200 ease-out lg:w-60 lg:translate-x-0 ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+        style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+      >
+        <div className="mb-6 flex items-center justify-between px-2">
+          <Link href="/searches" className="flex items-center gap-2 font-semibold tracking-tight">
+            <span className="text-xl">🪺</span>
+            <span>Roost</span>
+          </Link>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="Close navigation menu"
+            className="rounded-lg p-1 transition-colors hover:bg-[var(--surface-raised)] lg:hidden"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            <CloseIcon />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-1">
+          {NAV_ITEMS.map((item) => (
+            <NavItem key={item.href} href={item.href} label={item.label} Icon={item.icon} onNavigate={() => setOpen(false)} />
+          ))}
+          {user.role === "ADMIN" && (
+            <NavItem href="/admin" label="Admin" Icon={AdminIcon} onNavigate={() => setOpen(false)} />
+          )}
+        </div>
+
+        <div className="space-y-2 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+          <Link
+            href="/about"
+            onClick={() => setOpen(false)}
+            className="block px-2 text-xs transition-colors hover:text-[var(--text-primary)]"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            About Roost
+          </Link>
+          <p className="truncate px-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+            {user.email}
+          </p>
+          <button
+            onClick={handleSignOut}
+            className="w-full rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-[var(--surface-raised)]"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Sign out
+          </button>
+        </div>
+      </nav>
+    </>
   );
 }
