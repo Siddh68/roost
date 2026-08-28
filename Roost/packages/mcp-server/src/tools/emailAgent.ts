@@ -101,11 +101,26 @@ export function accountEmail(account: EmailAccount): string {
 // Real Gmail implementation
 // ---------------------------------------------------------------------------
 
+// Reused per account for the life of the process, instead of building a
+// fresh OAuth2Client (and implicitly re-running the full refresh-token
+// handshake) on every single call. googleapis caches the access token on
+// the client instance and only actually refreshes it once that token is
+// near expiry, but that caching is useless if every caller gets its own
+// brand-new, blank-slate client — which is what was happening here: every
+// checkInbox/readThread/sendEmail paid for a full token refresh round-trip
+// before its real request even went out, on every single call, compounding
+// across every thread checked in every poll cycle.
+const gmailClients = new Map<EmailAccount, gmail_v1.Gmail>();
+
 function getGmailClient(account: EmailAccount): gmail_v1.Gmail {
+  const cached = gmailClients.get(account);
+  if (cached) return cached;
   const cfg = getAccountEnv(account);
   const oauth2Client = new google.auth.OAuth2(cfg.clientId, cfg.clientSecret);
   oauth2Client.setCredentials({ refresh_token: cfg.refreshToken });
-  return google.gmail({ version: "v1", auth: oauth2Client });
+  const client = google.gmail({ version: "v1", auth: oauth2Client });
+  gmailClients.set(account, client);
+  return client;
 }
 
 function headerValue(

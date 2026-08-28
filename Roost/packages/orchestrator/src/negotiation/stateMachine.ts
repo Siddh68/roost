@@ -196,8 +196,18 @@ export async function pollDealOnce(dealId: string): Promise<{ threadsWithActivit
   const activeThreads = await getActiveThreadsByDeal(dealId);
   let threadsWithActivity = 0;
 
-  for (const thread of activeThreads) {
-    const didAct = await pollThread(deal, thread);
+  // Checking Gmail for a new message is a pure read with no shared
+  // state, so — unlike the classify/decide/respond pipeline below, which
+  // touches the shared ML model state and stays sequential — every
+  // thread's check can run concurrently instead of one Gmail round-trip
+  // at a time. This was the dominant cost once a deal had more than a
+  // couple of active threads: N sequential ~300-800ms round-trips per
+  // poll cycle, which is exactly the kind of latency that made real
+  // replies land well past the poll interval.
+  const checked = await Promise.all(activeThreads.map((thread) => checkThreadForNewMessage(thread)));
+  for (const { thread, hasNew } of checked) {
+    if (!hasNew) continue;
+    const didAct = await processThreadReply(deal, thread);
     if (didAct) threadsWithActivity++;
   }
 
@@ -221,15 +231,25 @@ export async function pollAcceptedThreads(dealId: string): Promise<number> {
   const accepted = threads.filter((t) => t.status === "accepted");
   let handled = 0;
 
-  for (const thread of accepted) {
-    const previousPolledAt = thread.lastPolledAt;
-    const newMessages = await checkInbox({
-      account: "agent",
-      threadIds: [thread.id],
-      sinceTimestamp: previousPolledAt,
-    });
-    await updateThread(thread.id, { lastPolledAt: Date.now() - POLL_SAFETY_BUFFER_MS });
-    if (newMessages.length === 0) continue;
+  // Same split as checkThreadForNewMessage/processThreadReply above: the
+  // Gmail check is a pure read, safe and worth running concurrently across
+  // every accepted thread; only threads with an actual new message go
+  // through the (sequential) response pipeline below.
+  const checked = await Promise.all(
+    accepted.map(async (thread) => {
+      const previousPolledAt = thread.lastPolledAt;
+      const newMessages = await checkInbox({
+        account: "agent",
+        threadIds: [thread.id],
+        sinceTimestamp: previousPolledAt,
+      });
+      await updateThread(thread.id, { lastPolledAt: Date.now() - POLL_SAFETY_BUFFER_MS });
+      return { thread, previousPolledAt, hasNew: newMessages.length > 0 };
+    })
+  );
+
+  for (const { thread, previousPolledAt, hasNew } of checked) {
+    if (!hasNew) continue;
 
     const listing = getListingOrThrow(thread.listingId);
     const allMessages = await readThread({ account: "agent", threadId: thread.id });
@@ -377,16 +397,21 @@ async function notifyClientOnResolution(dealId: string, statusBefore: Deal["stat
   await notifyDealOwner(dealId, subject, body);
 }
 
-async function pollThread(deal: Deal, thread: NegotiationThread): Promise<boolean> {
+/** The parallel-safe half of the old pollThread: just asks "did anything arrive," with no shared state touched. */
+async function checkThreadForNewMessage(
+  thread: NegotiationThread
+): Promise<{ thread: NegotiationThread; hasNew: boolean }> {
   const newMessages = await checkInbox({
     account: "agent",
     threadIds: [thread.id],
     sinceTimestamp: thread.lastPolledAt,
   });
-
   await updateThread(thread.id, { lastPolledAt: Date.now() - POLL_SAFETY_BUFFER_MS });
-  if (newMessages.length === 0) return false;
+  return { thread, hasNew: newMessages.length > 0 };
+}
 
+/** The sequential half: only called once checkThreadForNewMessage confirms there's something to react to. */
+async function processThreadReply(deal: Deal, thread: NegotiationThread): Promise<boolean> {
   const listing = getListingOrThrow(thread.listingId);
   const profile = deal.companyProfile;
   const allMessages = await readThread({ account: "agent", threadId: thread.id });
@@ -738,11 +763,25 @@ export async function runPollAllLoop(intervalMs: number): Promise<void> {
     try {
       const deals = await listAllDeals();
       const active = deals.filter((d) => d.status === "NEGOTIATING" || d.status === "WON");
-      let totalActivity = 0;
-      for (const d of active) {
-        const { threadsWithActivity } = await pollDealOnce(d.id);
-        totalActivity += threadsWithActivity;
-      }
+      // Deals are independent (their own thread/transcript rows; the two
+      // ML models are shared in-memory singletons, so concurrent access is
+      // already safe), so poll every active deal at once instead of one
+      // deal fully finishing before the next even starts — with dozens of
+      // active deals this was the other half of the latency the sequential
+      // version added on top of the per-thread cost fixed in pollDealOnce.
+      // Each deal's failure is caught individually so one bad deal can't
+      // block the rest of the batch from being polled this cycle.
+      const results = await Promise.all(
+        active.map(async (d) => {
+          try {
+            return await pollDealOnce(d.id);
+          } catch (err) {
+            console.error(`[poll-all] error polling deal ${d.id}:`, err);
+            return { threadsWithActivity: 0 };
+          }
+        })
+      );
+      const totalActivity = results.reduce((sum, r) => sum + r.threadsWithActivity, 0);
       if (totalActivity > 0) {
         console.log(`[poll-all] ${totalActivity} thread(s) had activity across ${active.length} deal(s).`);
       }
