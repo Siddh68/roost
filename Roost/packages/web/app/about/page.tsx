@@ -173,7 +173,7 @@ export default async function AboutPage() {
       <div className="mx-auto flex max-w-5xl flex-col px-6">
         <header className="flex items-center justify-between py-6">
           <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
-            <span className="text-xl">🪺</span>
+            <img src="/roost-logo.png" alt="" className="h-7 w-7" />
             <span>Roost</span>
           </Link>
           <Link

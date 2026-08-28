@@ -125,7 +125,7 @@ export default function Sidebar({ user }: { user: SessionUser | null }) {
         style={{ background: "var(--surface)", borderColor: "var(--border)" }}
       >
         <Link href="/searches" className="flex items-center gap-2 font-semibold tracking-tight">
-          <span className="text-lg">🪺</span>
+          <img src="/roost-logo.png" alt="" className="h-6 w-6" />
           <span>Roost</span>
         </Link>
         <button
@@ -157,7 +157,7 @@ export default function Sidebar({ user }: { user: SessionUser | null }) {
       >
         <div className="mb-6 flex items-center justify-between px-2">
           <Link href="/searches" className="flex items-center gap-2 font-semibold tracking-tight">
-            <span className="text-xl">🪺</span>
+            <img src="/roost-logo.png" alt="" className="h-7 w-7" />
             <span>Roost</span>
           </Link>
           <button

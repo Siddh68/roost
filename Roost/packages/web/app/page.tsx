@@ -39,7 +39,7 @@ export default async function HomePage() {
       <div className="mx-auto flex max-w-6xl flex-col px-6">
         <header className="flex items-center justify-between py-6">
           <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
-            <span className="text-xl">🪺</span>
+            <img src="/roost-logo.png" alt="" className="h-7 w-7" />
             <span>Roost</span>
           </Link>
           <Link
@@ -51,21 +51,41 @@ export default async function HomePage() {
           </Link>
         </header>
 
-        <main className="flex flex-1 flex-col items-center pb-24 pt-20 text-center">
-          <h1 className="max-w-3xl text-4xl font-bold tracking-tight sm:text-5xl">
-            Find your next office with Roost AI
-          </h1>
-          <p className="mt-5 max-w-xl text-base text-[var(--text-secondary)] sm:text-lg">
-            Your AI agent for finding and negotiating the perfect office space, faster and smarter.
-          </p>
-          <Link
-            href="/login"
-            className="mt-8 rounded-lg bg-[var(--accent)] px-6 py-3 text-sm font-medium text-[#06210f] transition hover:opacity-90"
-          >
-            Get Started
-          </Link>
+        <main className="flex flex-1 flex-col pb-24 pt-16 sm:pt-20">
+          <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-2 lg:gap-16">
+            <div className="text-center lg:text-left">
+              <h1 className="mx-auto max-w-xl text-4xl font-bold tracking-tight sm:text-5xl lg:mx-0">
+                Find your next office with Roost AI
+              </h1>
+              <p className="mx-auto mt-5 max-w-xl text-base text-[var(--text-secondary)] sm:text-lg lg:mx-0">
+                Your AI agent for finding and negotiating the perfect office space, faster and smarter.
+              </p>
+              <Link
+                href="/login"
+                className="mt-8 inline-block rounded-lg bg-[var(--accent)] px-6 py-3 text-sm font-medium text-[#06210f] transition hover:opacity-90"
+              >
+                Get Started
+              </Link>
+            </div>
 
-          <div className="mt-24 grid w-full grid-cols-1 gap-6 sm:grid-cols-3">
+            <div className="flex justify-center lg:justify-end">
+              <div className="relative flex h-56 w-56 items-center justify-center sm:h-72 sm:w-72">
+                <div
+                  className="absolute inset-0 rounded-full blur-2xl"
+                  style={{ background: "radial-gradient(circle, color-mix(in srgb, var(--accent) 30%, transparent), transparent 70%)" }}
+                  aria-hidden="true"
+                />
+                <img
+                  src="/roost-logo.png"
+                  alt="Roost"
+                  className="relative h-full w-full object-contain"
+                  style={{ filter: "drop-shadow(0 0 32px color-mix(in srgb, var(--accent) 45%, transparent))" }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-20 grid w-full grid-cols-1 gap-6 sm:grid-cols-3">
             {FEATURES.map((feature) => (
               <div
                 key={feature.title}

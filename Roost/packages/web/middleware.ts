@@ -52,7 +52,13 @@ export async function middleware(request: NextRequest) {
 // public marketing landing page at the exact root path (app/page.tsx itself
 // still redirects a signed-in visitor on to /searches — this only stops
 // middleware from bouncing a signed-OUT visitor away before that page ever
-// renders), the public about page, and Next's static/internal assets.
+// renders), the public about page, Next's static/internal assets, and any
+// request for a static file (images, icons, fonts) served from /public —
+// missing this exemption meant a logged-out visitor's request for the logo
+// itself (e.g. /roost-logo.png) got redirected to /login instead of ever
+// reaching the file.
 export const config = {
-  matcher: ["/((?!login|auth/callback|about|_next/static|_next/image|favicon.ico|$).*)"],
+  matcher: [
+    "/((?!login|auth/callback|about|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|css|js|woff|woff2|ttf)$|$).*)",
+  ],
 };

@@ -32,7 +32,7 @@ export default function EmailAgentButton({ agentEmail }: { agentEmail: string })
         <div className="email-agent-card">
           <div className="email-agent-card-header">
             <span className="email-agent-icon" aria-hidden="true">
-              🪺
+              <img src="/roost-logo.png" alt="" className="h-full w-full object-contain" />
             </span>
             <div>
               <p className="email-agent-card-title">AI Agent</p>
