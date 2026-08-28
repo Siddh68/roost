@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "../lib/session";
+import PromoVideo from "./PromoVideo";
 
 const FEATURES = [
   {
@@ -97,6 +98,16 @@ export default async function HomePage() {
                 <p className="mt-2 text-sm text-[var(--text-secondary)]">{feature.description}</p>
               </div>
             ))}
+          </div>
+
+          <div className="mt-24">
+            <h2 className="text-center text-2xl font-bold tracking-tight sm:text-3xl">See Roost in action</h2>
+            <p className="mx-auto mt-3 max-w-lg text-center text-sm text-[var(--text-secondary)] sm:text-base">
+              Search, scoring, live negotiation, and a reply sent in under 15 seconds — start to finish.
+            </p>
+            <div className="mx-auto mt-8 max-w-3xl">
+              <PromoVideo />
+            </div>
           </div>
         </main>
 
