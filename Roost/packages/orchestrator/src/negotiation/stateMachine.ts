@@ -48,6 +48,7 @@ import {
   counterEmail,
   answerInfoEmail,
   closedLostEmail,
+  withdrawnForAnotherDealEmail,
   clientDealWonEmail,
   clientDealLostEmail,
   clientOutreachStartedEmail,
@@ -810,8 +811,47 @@ async function reconcileDealStatus(dealId: string): Promise<void> {
   const allResolved = threads.every((t) => t.status !== "active");
   if (anyAccepted) {
     await updateDealStatus(dealId, "WON");
+    // A client only signs one lease — once any listing is accepted, every
+    // other listing still being negotiated in parallel needs to be told
+    // we're no longer interested, not left hanging (or worse, accidentally
+    // accepted too). Filtering to "active" threads makes this safe to call
+    // on every cycle for an already-WON deal: a thread withdrawn on an
+    // earlier pass is no longer "active", so it's simply skipped here from
+    // then on rather than getting a second withdrawal email.
+    await withdrawOtherActiveThreads(dealId, threads);
   } else if (allResolved) {
     await updateDealStatus(dealId, "LOST");
+  }
+}
+
+/** Withdraws every other still-active listing negotiation on a deal once one of them is accepted. */
+async function withdrawOtherActiveThreads(dealId: string, threads: NegotiationThread[]): Promise<void> {
+  const stillActive = threads.filter((t) => t.status === "active");
+  for (const thread of stillActive) {
+    try {
+      const listing = getListingOrThrow(thread.listingId);
+      const body = withdrawnForAnotherDealEmail(listing);
+      const sent = await sendEmail({
+        account: "agent",
+        to: thread.landlordEmail,
+        subject: `Re: ${subjectFor(listing)}`,
+        body,
+        threadId: thread.id,
+        inReplyToMessageId: thread.lastMessageId ?? undefined,
+      });
+      await updateThread(thread.id, { status: "rejected", lastMessageId: sent.messageId });
+      await appendTranscript({
+        dealId,
+        threadId: thread.id,
+        type: "response_sent",
+        payload: { action: "withdrawn_other_deal_accepted", body },
+      });
+    } catch (err) {
+      // Left "active" on failure — reconcileDealStatus runs every poll
+      // cycle for a WON deal, so this is retried automatically rather than
+      // silently leaving a landlord never told we've moved on.
+      console.error(`[poll] failed to withdraw thread ${thread.id} for deal ${dealId}:`, err);
+    }
   }
 }
 

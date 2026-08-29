@@ -326,3 +326,13 @@ Thanks so much for the conversation — after weighing our options, we won't be 
 Best,
 The Roost team`;
 }
+
+/** Sent to every OTHER shortlisted listing's landlord the moment one of them is accepted — a client only signs one lease. */
+export function withdrawnForAnotherDealEmail(listing: Listing): string {
+  return `Hi ${listing.landlordName},
+
+Quick update — we've decided to move forward with another space for our team, so we won't be proceeding with "${listing.title}" after all. Thank you for your time and for working with us on this — we hope to cross paths again.
+
+Best,
+The Roost team`;
+}
