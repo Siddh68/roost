@@ -123,6 +123,73 @@ function getGmailClient(account: EmailAccount): gmail_v1.Gmail {
   return client;
 }
 
+// ---------------------------------------------------------------------------
+// Rate-limit circuit breaker
+// ---------------------------------------------------------------------------
+//
+// Gaxios retries a 429 up to 3 times per call with its own backoff, so one
+// "single" rate-limited call already re-hits Gmail several times on its own.
+// A poll loop that just catches-and-retries every 5s on top of that keeps
+// hammering the same limit and prolonging it, rather than backing off — this
+// was confirmed live as the reason a rate-limit condition made the agent
+// look completely unresponsive for 40+ minutes. Recording a per-account
+// cooldown when a 429 is seen lets every subsequent call in that window fail
+// fast (no network call at all) until Gmail's own stated retry time passes.
+const rateLimitCooldownUntil = new Map<EmailAccount, number>();
+const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
+
+function isRateLimited(account: EmailAccount): boolean {
+  const until = rateLimitCooldownUntil.get(account);
+  return !!until && Date.now() < until;
+}
+
+function isRateLimitError(err: unknown): boolean {
+  return (err as { code?: number | string })?.code === 429 || (err as { code?: number | string })?.code === "429";
+}
+
+function extractRetryAfterMs(err: unknown): number {
+  const header = (err as { response?: { headers?: Record<string, string> } })?.response?.headers?.[
+    "retry-after"
+  ];
+  if (header) {
+    const seconds = Number(header);
+    if (!Number.isNaN(seconds)) return seconds * 1000;
+    const asDate = Date.parse(header);
+    if (!Number.isNaN(asDate)) return Math.max(asDate - Date.now(), DEFAULT_RATE_LIMIT_COOLDOWN_MS);
+  }
+  return DEFAULT_RATE_LIMIT_COOLDOWN_MS;
+}
+
+function recordRateLimit(account: EmailAccount, err: unknown): void {
+  const cooldownMs = extractRetryAfterMs(err);
+  rateLimitCooldownUntil.set(account, Date.now() + cooldownMs);
+  console.error(
+    `[emailAgent] ${account} hit Gmail rate limit — cooling down for ${Math.round(cooldownMs / 1000)}s`
+  );
+}
+
+// Small bounded worker-pool, matching the concurrency-limiting pattern used
+// for Gmail calls elsewhere (stateMachine.ts) — an unbounded Promise.all
+// over every message in a discovery-mode inbox scan is exactly the kind of
+// burst that trips the rate limit above in the first place.
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const i = nextIndex++;
+      results[i] = await fn(items[i]);
+    }
+  }
+  await Promise.all(new Array(Math.min(limit, items.length)).fill(0).map(() => worker()));
+  return results;
+}
+const GMAIL_CONCURRENCY_LIMIT = 4;
+
 function headerValue(
   headers: gmail_v1.Schema$MessagePartHeader[] | undefined,
   name: string
@@ -266,7 +333,11 @@ async function checkInboxReal(args: CheckInboxArgs): Promise<InboxMessage[]> {
       let thread;
       try {
         thread = await gmail.users.threads.get({ userId: "me", id: threadId, format: "full" });
-      } catch {
+      } catch (err) {
+        if (isRateLimitError(err)) {
+          recordRateLimit(args.account, err);
+          break; // stop hammering the rest of this batch too
+        }
         continue; // thread not visible in this mailbox (yet) — skip
       }
 
@@ -306,18 +377,23 @@ async function checkInboxReal(args: CheckInboxArgs): Promise<InboxMessage[]> {
       maxResults: 100,
     });
 
-    // Fetch metadata for all candidates in parallel — sequential awaits here
-    // turn a 50-message inbox into 50 round-trips end to end (tens of
-    // seconds), which starves the poll loop on a demo with any real usage.
-    const messages = await Promise.all(
-      (list.data.messages ?? []).map((ref) =>
+    // Fetch metadata for all candidates with bounded concurrency —
+    // sequential awaits here turn a 50-message inbox into 50 round-trips end
+    // to end (tens of seconds), but a plain unbounded Promise.all fires every
+    // request in the same instant, which is exactly the kind of burst that
+    // trips Gmail's per-user rate limit on a busy real inbox (confirmed live:
+    // this discovery-mode scan runs every 5s from clientIntake.ts, so an
+    // unbounded burst here recurred every single poll cycle).
+    const messages = await mapWithConcurrency(
+      list.data.messages ?? [],
+      GMAIL_CONCURRENCY_LIMIT,
+      (ref) =>
         gmail.users.messages.get({
           userId: "me",
           id: ref.id!,
           format: "metadata",
           metadataHeaders: ["From", "Message-ID"],
         })
-      )
     );
 
     for (const message of messages) {
@@ -447,15 +523,46 @@ async function readThreadMock(args: ReadThreadArgs): Promise<ThreadMessage[]> {
 // ---------------------------------------------------------------------------
 
 export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
-  return hasRealCredentials(args.account) ? sendEmailReal(args) : sendEmailMock(args);
+  if (!hasRealCredentials(args.account)) return sendEmailMock(args);
+  if (isRateLimited(args.account)) {
+    throw new Error(`Gmail rate-limited for account "${args.account}" — cooling down, try again shortly`);
+  }
+  try {
+    return await sendEmailReal(args);
+  } catch (err) {
+    if (isRateLimitError(err)) recordRateLimit(args.account, err);
+    throw err;
+  }
 }
 
 export async function checkInbox(args: CheckInboxArgs): Promise<InboxMessage[]> {
-  return hasRealCredentials(args.account) ? checkInboxReal(args) : checkInboxMock(args);
+  if (!hasRealCredentials(args.account)) return checkInboxMock(args);
+  // A rate-limited account has nothing new to report this cycle — returning
+  // an empty result (rather than throwing) lets callers' existing "no new
+  // messages" path handle it for free, with no special-casing needed.
+  if (isRateLimited(args.account)) return [];
+  try {
+    return await checkInboxReal(args);
+  } catch (err) {
+    if (isRateLimitError(err)) {
+      recordRateLimit(args.account, err);
+      return [];
+    }
+    throw err;
+  }
 }
 
 export async function readThread(args: ReadThreadArgs): Promise<ThreadMessage[]> {
-  return hasRealCredentials(args.account) ? readThreadReal(args) : readThreadMock(args);
+  if (!hasRealCredentials(args.account)) return readThreadMock(args);
+  if (isRateLimited(args.account)) {
+    throw new Error(`Gmail rate-limited for account "${args.account}" — cooling down, try again shortly`);
+  }
+  try {
+    return await readThreadReal(args);
+  } catch (err) {
+    if (isRateLimitError(err)) recordRateLimit(args.account, err);
+    throw err;
+  }
 }
 
 export function isUsingMockTransport(account: EmailAccount): boolean {
