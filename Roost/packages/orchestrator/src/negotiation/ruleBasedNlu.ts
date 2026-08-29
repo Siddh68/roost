@@ -37,14 +37,22 @@ export function extractPriceInr(text: string): number | null {
   return null;
 }
 
+// Gmail (and most mail clients) hard-wrap plain-text bodies at ~78 chars,
+// so a real reply can land a "\r\n" right in the middle of a keyword phrase
+// ("It's no\r\nlonger available."). A literal space between words in these
+// patterns then never matches — confirmed live: an outright decline with
+// "no longer available" split across a wrapped line was read as off_topic
+// instead of reject. Every multi-word phrase here uses \s+ instead of a
+// literal space so any run of whitespace (including a line-wrap) still
+// matches.
 const AGREEMENT_KEYWORDS =
-  /\b(accept(ed)?|agree(d)?|sounds good|deal|works for (us|me)|that works|happy to proceed|let'?s proceed|confirm(ed)?|go ahead|we'?re in)\b/i;
+  /\b(accept(ed)?|agree(d)?|sounds\s+good|deal|works\s+for\s+(us|me)|that\s+works|happy\s+to\s+proceed|let'?s\s+proceed|confirm(ed)?|go\s+ahead|we'?re\s+in)\b/i;
 
 const DECLINE_KEYWORDS =
-  /\b(not interested|decline|unfortunately|can'?t accommodate|cannot accommodate|no longer available|won'?t be able|will not be able|pass on this|reject|not a fit|not feasible|going with (another|a different))\b/i;
+  /\b(not\s+interested|decline|unfortunately|can'?t\s+accommodate|cannot\s+accommodate|no\s+longer\s+available|won'?t\s+be\s+able|will\s+not\s+be\s+able|pass\s+on\s+this|reject|not\s+a\s+fit|not\s+feasible|going\s+with\s+(another|a\s+different))\b/i;
 
 const QUESTION_KEYWORDS =
-  /\?|\b(could you|can you|what is|what are|please clarify|please let (us|me) know|wondering|would like to know)\b/i;
+  /\?|\b(could\s+you|can\s+you|what\s+is|what\s+are|please\s+clarify|please\s+let\s+(us|me)\s+know|wondering|would\s+like\s+to\s+know)\b/i;
 
 /**
  * A weak, cheap heuristic guess at message tone — only confident enough to
