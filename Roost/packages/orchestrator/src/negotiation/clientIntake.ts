@@ -93,6 +93,7 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
 
   const discovered = await checkInbox({ account: "agent", sinceTimestamp });
   let handled = 0;
+  let earliestFailureDate: number | null = null;
 
   for (const message of discovered) {
     if (isLandlordSender(message.from)) continue; // owned by the negotiation poll loop
@@ -116,12 +117,31 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
       if (await processIntakeMessage(state, message)) handled++;
     } catch (err) {
       console.error(`[client-intake] error processing thread ${message.threadId}:`, err);
+      if (earliestFailureDate == null || message.date < earliestFailureDate) {
+        earliestFailureDate = message.date;
+      }
     } finally {
       await saveState(state);
     }
   }
 
-  state.lastPolledAt = nowTimestamp - POLL_SAFETY_BUFFER_MS;
+  // Advancing lastPolledAt past a message that FAILED to process would lose
+  // it permanently — discovery mode only ever looks forward from this
+  // cursor, so anything older than it is never seen again. Confirmed live:
+  // a transient failure (a send that threw, e.g. a momentary Gmail error)
+  // left a client's very first "Hi" completely unanswered forever, because
+  // the cursor still advanced past it at the end of this same cycle even
+  // though it was never actually handled. If anything failed this cycle,
+  // cap the advance at just before the EARLIEST failure instead of "now",
+  // so it (and anything after it) gets retried next cycle. Worst case, an
+  // already-succeeded message from earlier in the same batch gets
+  // reprocessed too — its state-based branching makes that a harmless
+  // no-op or a duplicate ack, never as bad as silently going quiet forever.
+  const safeAdvanceTo = nowTimestamp - POLL_SAFETY_BUFFER_MS;
+  state.lastPolledAt =
+    earliestFailureDate != null
+      ? Math.min(safeAdvanceTo, earliestFailureDate - POLL_SAFETY_BUFFER_MS)
+      : safeAdvanceTo;
   await saveState(state);
   return { handled };
 }
