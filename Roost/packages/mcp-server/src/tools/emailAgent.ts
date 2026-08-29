@@ -177,7 +177,16 @@ function extractRetryAfterMs(err: unknown): number {
     const match = msg.match(/Retry after (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/i);
     if (match) {
       const asDate = Date.parse(match[1]);
-      if (!Number.isNaN(asDate)) return Math.max(asDate - Date.now(), 1000);
+      if (!Number.isNaN(asDate)) {
+        // A retry landing exactly ON Google's stated boundary (clock skew,
+        // or the estimate simply not being exact) immediately re-hits the
+        // limit — confirmed live: a retry right at the reported time got a
+        // FRESH 429 with an even later retry-after than the one just
+        // waited out. A modest safety margin costs nothing when the wait
+        // was already long, but avoids landing exactly at the edge.
+        const rawMs = asDate - Date.now();
+        return Math.max(Math.round(rawMs * 1.25), 1000);
+      }
     }
   }
 
