@@ -157,6 +157,30 @@ function extractRetryAfterMs(err: unknown): number {
     const asDate = Date.parse(header);
     if (!Number.isNaN(asDate)) return Math.max(asDate - Date.now(), DEFAULT_RATE_LIMIT_COOLDOWN_MS);
   }
+
+  // Gmail's 429 doesn't set an HTTP Retry-After header at all — the actual
+  // stated recovery time is embedded in the error's own message text
+  // instead ("User-rate limit exceeded.  Retry after 2026-08-29T05:56:52Z").
+  // Without this, every 429 fell back to the flat default below, which is
+  // far shorter than Google's real window — confirmed live: the cooldown
+  // expired long before Gmail actually lifted the limit, so the very next
+  // call re-hit the same 429 (and, worse, each fresh hit reported an even
+  // LATER retry time than the one before it — hammering a live rate limit
+  // appears to push the window out further, not just fail to help).
+  const candidateMessages = [
+    (err as { message?: string })?.message,
+    (err as { cause?: { message?: string } })?.cause?.message,
+    ...((err as { errors?: { message?: string }[] })?.errors ?? []).map((e) => e?.message),
+  ].filter((m): m is string => !!m);
+
+  for (const msg of candidateMessages) {
+    const match = msg.match(/Retry after (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/i);
+    if (match) {
+      const asDate = Date.parse(match[1]);
+      if (!Number.isNaN(asDate)) return Math.max(asDate - Date.now(), 1000);
+    }
+  }
+
   return DEFAULT_RATE_LIMIT_COOLDOWN_MS;
 }
 
