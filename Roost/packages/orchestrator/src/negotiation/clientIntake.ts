@@ -220,7 +220,24 @@ async function processIntakeMessage(
     return true;
   }
 
-  const parsed = parseClientIntake(latest.body, DEFAULT_FALLBACK_AREA);
+  // parseClientIntake needs team size AND budget in the same text blob it's
+  // given — but a real client very often supplies them across separate
+  // replies (we ask "what's your team size and budget", they answer team
+  // size, we (mistakenly) ask again, they THEN give budget). Parsing only
+  // latest.body means the field from an earlier message in this same
+  // thread is invisible to that later parse, so it looks perpetually
+  // incomplete and the agent re-asks forever even after being told
+  // everything — confirmed as the actual cause of a live report where the
+  // agent kept re-asking for requirements already given, and only worked
+  // once every field happened to land in one single message. Concatenating
+  // every message the client themselves sent in this thread (not our own
+  // prompts) lets fields accumulate across turns the way a human reading
+  // the whole thread naturally would.
+  const clientMessages = thread.filter(
+    (m) => extractSenderEmail(m.from) !== accountEmail("agent").toLowerCase()
+  );
+  const combinedClientText = clientMessages.map((m) => m.body).join("\n\n");
+  const parsed = parseClientIntake(combinedClientText, DEFAULT_FALLBACK_AREA);
 
   if (!parsed.profile) {
     // Cold "I'm interested" messages, questions, anything we can't turn

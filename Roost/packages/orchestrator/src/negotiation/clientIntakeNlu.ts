@@ -38,6 +38,13 @@ function extractBudget(text: string): number | null {
     if (unit === "k") n *= 1000;
     return Math.round(n);
   }
+  // Bare "3 lakhs a month" / "around 5 lakh" — a very common way to state a
+  // budget in plain Indian English with no ₹/Rs/INR marker at all. "lakh(s)"
+  // is an unambiguous money unit (unlike "k", which collides with real
+  // estate phrasing like "8k sq ft"), so it's safe to match without
+  // requiring a currency prefix first.
+  const bareLakh = text.match(/(\d+(?:\.\d+)?)\s*(lakhs?)\b/i);
+  if (bareLakh) return Math.round(Number(bareLakh[1]) * 100000);
   const bare = text.match(/budget[^\d₹]{0,15}([\d,]{4,})/i);
   if (bare) return Math.round(Number(bare[1].replace(/,/g, "")));
   return null;
