@@ -30,12 +30,27 @@ function extractTeamSize(text: string): number | null {
 
 function extractBudget(text: string): number | null {
   // "₹25,000", "Rs 25000", "25,000/month", "budget of 2,50,000"
-  const match = text.match(/(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)\s*(lakh|lakhs|l|k)?/i);
+  //
+  // The \b before the alternation is load-bearing: without it, "rs" matches
+  // as a bare substring inside any ordinary word ending in those two
+  // letters ("members", "workers", "doors"...) and then greedily grabs
+  // whatever number happens to follow it later in the message — confirmed
+  // live: "8 members 2,00,000 BKC metro" matched "rs" out of "membeRS",
+  // then " 2,00,000" right after it, and happened to land on the right
+  // number purely by coincidence of word order. A message like "15 members
+  // 3 parking spots" would have silently produced a budget of ₹3 the same
+  // way. The trailing size check below is a second, independent guard for
+  // any other way a tiny, clearly-not-a-budget number could slip through.
+  const match = text.match(/\b(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)\s*(lakh|lakhs|l|k)?/i);
   if (match) {
     let n = Number(match[1].replace(/,/g, ""));
     const unit = match[2]?.toLowerCase();
     if (unit === "lakh" || unit === "lakhs" || unit === "l") n *= 100000;
     if (unit === "k") n *= 1000;
+    // A real monthly office budget is never a tiny number — anything below
+    // this is almost certainly an unrelated count (seats, floor, parking
+    // spots) that got swept up by the regex, not a rupee amount.
+    if (n < 1000) return null;
     return Math.round(n);
   }
   // Bare "3 lakhs a month" / "around 5 lakh" — a very common way to state a
@@ -45,6 +60,13 @@ function extractBudget(text: string): number | null {
   // requiring a currency prefix first.
   const bareLakh = text.match(/(\d+(?:\.\d+)?)\s*(lakhs?)\b/i);
   if (bareLakh) return Math.round(Number(bareLakh[1]) * 100000);
+  // Bare "2,00,000" with no marker at all — Indian comma-grouping (2-digit
+  // groups after the first) is itself a distinctive rupee signal (a US-style
+  // grouping would read "200,000"), so it's trusted without a keyword or
+  // currency symbol, mirroring the same trusted-bare-number pattern already
+  // used for landlord price extraction in ruleBasedNlu.ts.
+  const bareIndianGrouped = text.match(/\b(\d{1,2}(?:,\d{2})+,\d{3})\b/);
+  if (bareIndianGrouped) return Math.round(Number(bareIndianGrouped[1].replace(/,/g, "")));
   const bare = text.match(/budget[^\d₹]{0,15}([\d,]{4,})/i);
   if (bare) return Math.round(Number(bare[1].replace(/,/g, "")));
   return null;

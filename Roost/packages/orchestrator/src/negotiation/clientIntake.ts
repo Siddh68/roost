@@ -9,7 +9,7 @@
 import { sendEmail, checkInbox, readThread, accountEmail } from "@roost/mcp-server/tools/emailAgent";
 import { scoreListing } from "@roost/mcp-server/tools/scoreListing";
 import { loadListings } from "@roost/mcp-server/tools/searchListings";
-import { getOrCreateClientProfile, createCompanyProfile, createDeal, listDealsByUser, updateThread } from "../db/store.js";
+import { getOrCreateClientProfile, createCompanyProfile, createDeal, listDealsByUser, getThreadsByDeal, updateThread } from "../db/store.js";
 import {
   clientShortlistEmail,
   clientFollowUpAckEmail,
@@ -262,9 +262,26 @@ async function processIntakeMessage(
 
   // One active deal per client at a time — a second inbound thread from
   // the same person (a duplicate email, a "did you get this" resend)
-  // must never spin up a second parallel set of landlord threads.
+  // must never spin up a second parallel set of landlord threads. But a
+  // SHORTLISTED/NEGOTIATING deal with ZERO negotiation threads means
+  // outreach never actually completed (a crash between deal creation and
+  // startOutreach, or an earlier bug) — confirmed live as a real dead-end:
+  // a stale zero-thread deal from a prior incident permanently absorbed
+  // every later message from the same client into a generic "already in
+  // progress" ack, forever, since there was nothing to negotiate and no
+  // way out. Only a deal that actually reached at least one real thread
+  // counts as "active" here; a threadless one is treated as failed and a
+  // fresh attempt is allowed to proceed instead of being silently eaten.
   const existingDeals = await listDealsByUser(client.id);
-  const activeDeal = existingDeals.find((d) => d.status === "SHORTLISTED" || d.status === "NEGOTIATING");
+  let activeDeal: (typeof existingDeals)[number] | null = null;
+  for (const candidate of existingDeals) {
+    if (candidate.status !== "SHORTLISTED" && candidate.status !== "NEGOTIATING") continue;
+    const threads = await getThreadsByDeal(candidate.id);
+    if (threads.length > 0) {
+      activeDeal = candidate;
+      break;
+    }
+  }
   if (activeDeal) {
     const sent = await sendEmail({
       account: "agent",
