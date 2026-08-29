@@ -27,6 +27,10 @@ export const TRAINING_DATA: LabeledExample[] = [
   { text: "Works for me, let's lock it in.", label: "agreement" },
   { text: "Okay, confirmed. Looking forward to having you as a tenant.", label: "agreement" },
   { text: "We accept, thank you for working with us on this.", label: "agreement" },
+  { text: "Yea that works for me, let's go ahead.", label: "agreement" },
+  { text: "Sounds good, happy to proceed at that number.", label: "agreement" },
+  { text: "Ok done, let's finalize it.", label: "agreement" },
+  { text: "That's fine by us, go ahead and send the agreement.", label: "agreement" },
 
   // decline
   { text: "Unfortunately we can't accommodate that price.", label: "decline" },
@@ -41,6 +45,10 @@ export const TRAINING_DATA: LabeledExample[] = [
   { text: "Regretfully we cannot proceed with this deal.", label: "decline" },
   { text: "We have to reject this offer, it's too far from our expectations.", label: "decline" },
   { text: "The space has already been leased to someone else.", label: "decline" },
+  { text: "Not interested at this price point, sorry.", label: "decline" },
+  { text: "That won't work for us at all, we'll look elsewhere.", label: "decline" },
+  { text: "No, we can't do that number, it's too low.", label: "decline" },
+  { text: "We don't think this is going to work out, thanks anyway.", label: "decline" },
 
   // question
   { text: "Could you tell us more about your company size?", label: "question" },
@@ -55,6 +63,8 @@ export const TRAINING_DATA: LabeledExample[] = [
   { text: "Can you share more details about your team?", label: "question" },
   { text: "What is the timeline you're working with?", label: "question" },
   { text: "Do you have any specific floor preference?", label: "question" },
+  { text: "Not sure I follow, could you clarify what you mean?", label: "question" },
+  { text: "Is there any flexibility on the move-in date?", label: "question" },
 
   // statement (typically states a price/position, neutral tone)
   { text: "We can do ₹2,20,000 per month for this space.", label: "statement" },
@@ -69,6 +79,8 @@ export const TRAINING_DATA: LabeledExample[] = [
   { text: "We can offer ₹1,95,000 per month given the terms.", label: "statement" },
   { text: "Our counter would be ₹2,30,000 a month.", label: "statement" },
   { text: "The space is priced at ₹3,00,000 per month currently.", label: "statement" },
+  { text: "At last my price would be ₹8,00,000.", label: "statement" },
+  { text: "₹8,00,000 is our final number, let us know.", label: "statement" },
 
   // off_topic
   { text: "Thanks for reaching out, I'm currently out of office and will respond next week.", label: "off_topic" },
@@ -83,4 +95,6 @@ export const TRAINING_DATA: LabeledExample[] = [
   { text: "Note that this property listing has been updated recently.", label: "off_topic" },
   { text: "Our team will circle back on this by end of week.", label: "off_topic" },
   { text: "Thanks for your patience while we sort out some internal details.", label: "off_topic" },
+  { text: "Got your email, will get back to you shortly.", label: "off_topic" },
+  { text: "Cc'ing my partner on this thread going forward.", label: "off_topic" },
 ];

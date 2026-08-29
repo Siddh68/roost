@@ -36,6 +36,8 @@ import {
   priceCeiling,
   priceFloor,
   MAX_PRICE_MOVEMENT_ROUNDS,
+  MAX_TOTAL_ROUNDS,
+  NO_MOVEMENT_STREAK_LIMIT,
   type PolicyContext,
 } from "./policy.js";
 import { classifyIntent } from "../ml/intentModel.js";
@@ -121,12 +123,16 @@ function computeConcessionFeatures(
   priceMovementRounds: number,
   currentOfferInr: number,
   offeredPriceInr: number,
-  profile: PolicyContext["profile"]
+  profile: PolicyContext["profile"],
+  roundsUsed: number,
+  noMovementStreak: number
 ): ConcessionFeatures {
   const range = Math.max(priceCeiling(profile) - priceFloor(profile), 1);
   return {
     priceMovementRoundsNorm: priceMovementRounds / MAX_PRICE_MOVEMENT_ROUNDS,
     gapRatio: (offeredPriceInr - currentOfferInr) / range,
+    roundsUsedNorm: roundsUsed / MAX_TOTAL_ROUNDS,
+    noMovementStreakNorm: noMovementStreak / NO_MOVEMENT_STREAK_LIMIT,
   };
 }
 
@@ -492,7 +498,9 @@ async function processThreadReply(deal: Deal, thread: NegotiationThread): Promis
           thread.priceMovementRounds,
           effectiveCurrentOffer,
           classification.offeredPriceInr,
-          profile
+          profile,
+          thread.roundsUsed,
+          thread.noMovementStreak
         )
       : null;
   const predictedFraction = concessionFeatures

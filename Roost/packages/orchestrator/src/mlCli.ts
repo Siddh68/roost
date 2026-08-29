@@ -49,7 +49,7 @@ console.log(`Model example count after that round: ${statsAfterOne.exampleCount}
 
 console.log("\n=== Concession model: cold start vs after a stalled outcome ===");
 const model = new ConcessionModel();
-const features = { priceMovementRoundsNorm: 1 / 3, gapRatio: 0.4 };
+const features = { priceMovementRoundsNorm: 1 / 3, gapRatio: 0.4, roundsUsedNorm: 1 / 6, noMovementStreakNorm: 0 };
 console.log(`Cold-start prediction (should be ~0.5): ${model.predict(features).toFixed(3)}`);
 
 // Simulate ONE stalled negotiation at this feature point, taking a few
@@ -67,7 +67,7 @@ console.log(`After a SECOND stall at this feature point: ${model.predict(feature
 
 // A different, low-movement/low-gap situation should remain closer to neutral
 // since we never trained on it.
-const untouchedFeatures = { priceMovementRoundsNorm: 0, gapRatio: 0.05 };
+const untouchedFeatures = { priceMovementRoundsNorm: 0, gapRatio: 0.05, roundsUsedNorm: 0, noMovementStreakNorm: 0 };
 console.log(`Untouched feature point (should still be ~0.5): ${model.predict(untouchedFeatures).toFixed(3)}`);
 
 console.log("\nAll ML smoke checks ran without error.");

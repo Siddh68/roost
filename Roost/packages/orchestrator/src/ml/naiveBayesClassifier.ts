@@ -7,12 +7,48 @@
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 
+// A negation trigger flips the meaning of the word right after it ("not
+// interested", "can't accommodate", "won't work") — a plain bag-of-words
+// model sees "not" and "interested" as two separate, contradictory-looking
+// signals and tends to wash them out. Tagging the following word with its
+// own distinct not_-prefixed token gives the classifier a single, specific
+// feature it can actually learn to associate with decline, instead of
+// silently losing the negation.
+const NEGATION_TRIGGERS = new Set([
+  "not", "no", "never", "cant", "cannot", "wont", "dont", "doesnt", "isnt", "arent", "wasnt", "werent",
+]);
+
 export function tokenize(text: string): string[] {
-  return text
+  const words = text
     .toLowerCase()
+    .replace(/n't\b/g, "nt") // "won't" -> "wont", "can't" -> "cant" - lands on the same trigger set as the apostrophe-stripped forms below
     .replace(/[^a-z0-9\s₹]/g, " ")
     .split(/\s+/)
     .filter((t) => t.length > 1);
+
+  const tokens: string[] = [...words];
+
+  for (let i = 0; i < words.length - 1; i++) {
+    if (NEGATION_TRIGGERS.has(words[i])) {
+      // "neg:" (not "not_") deliberately can't collide with a real bigram
+      // below — bigrams are always word_word with a single underscore, and
+      // when the trigger word itself literally is "not", a "not_x" tag
+      // would be string-identical to that pair's own natural bigram,
+      // silently double-counting it every time "not" is the trigger word
+      // (confirmed: "not interested" produced two identical "not_interested"
+      // tokens in one document, one from each loop).
+      tokens.push(`neg:${words[i + 1]}`);
+    }
+  }
+
+  // Bigrams: short negotiation replies lean heavily on fixed two-word
+  // phrases ("sounds good", "not feasible", "let know") where the pair
+  // carries more signal than either word does alone.
+  for (let i = 0; i < words.length - 1; i++) {
+    tokens.push(`${words[i]}_${words[i + 1]}`);
+  }
+
+  return tokens;
 }
 
 interface SerializedModel {
