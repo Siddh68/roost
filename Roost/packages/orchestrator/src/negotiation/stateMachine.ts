@@ -61,6 +61,33 @@ import { loadAgentState, saveAgentState } from "../db/agentState.js";
 
 const CONCESSION_MODEL_DB_KEY = "concessionModel";
 
+// Gmail enforces a per-user rate limit on top of the daily quota — bursting
+// every thread's/deal's check as one unbounded Promise.all (the previous
+// version of this fix) tripped "User-rate limit exceeded" (429) errors in
+// production the moment there were more than a handful of threads to check
+// in a single poll cycle. A checkInbox/sendEmail call that 429s doesn't
+// throw loudly into a user-visible error — it just means that poll cycle
+// silently found nothing (a client's real answer looks ignored until a
+// later, non-throttled cycle finally sees it) or that an outreach email
+// never actually went out. Capping how many Gmail requests run at once
+// keeps the real win (concurrent instead of one-at-a-time) while staying
+// under the burst limit that unbounded concurrency was hitting.
+const GMAIL_CONCURRENCY_LIMIT = 4;
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    for (;;) {
+      const i = nextIndex++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 // Gmail's search index can lag a few seconds behind actual delivery — a
 // poll cursor that jumps straight to "now" every cycle can race past a
 // message that hasn't been indexed yet and never see it again. Keeping the
@@ -203,8 +230,11 @@ export async function pollDealOnce(dealId: string): Promise<{ threadsWithActivit
   // at a time. This was the dominant cost once a deal had more than a
   // couple of active threads: N sequential ~300-800ms round-trips per
   // poll cycle, which is exactly the kind of latency that made real
-  // replies land well past the poll interval.
-  const checked = await Promise.all(activeThreads.map((thread) => checkThreadForNewMessage(thread)));
+  // replies land well past the poll interval. Bounded (not a bare
+  // Promise.all) to stay under Gmail's per-user rate limit.
+  const checked = await mapWithConcurrency(activeThreads, GMAIL_CONCURRENCY_LIMIT, (thread) =>
+    checkThreadForNewMessage(thread)
+  );
   for (const { thread, hasNew } of checked) {
     if (!hasNew) continue;
     const didAct = await processThreadReply(deal, thread);
@@ -234,9 +264,12 @@ export async function pollAcceptedThreads(dealId: string): Promise<number> {
   // Same split as checkThreadForNewMessage/processThreadReply above: the
   // Gmail check is a pure read, safe and worth running concurrently across
   // every accepted thread; only threads with an actual new message go
-  // through the (sequential) response pipeline below.
-  const checked = await Promise.all(
-    accepted.map(async (thread) => {
+  // through the (sequential) response pipeline below. Bounded concurrency,
+  // same reason as above — Gmail's per-user rate limit, not just raw speed.
+  const checked = await mapWithConcurrency(
+    accepted,
+    GMAIL_CONCURRENCY_LIMIT,
+    async (thread) => {
       const previousPolledAt = thread.lastPolledAt;
       const newMessages = await checkInbox({
         account: "agent",
@@ -245,7 +278,7 @@ export async function pollAcceptedThreads(dealId: string): Promise<number> {
       });
       await updateThread(thread.id, { lastPolledAt: Date.now() - POLL_SAFETY_BUFFER_MS });
       return { thread, previousPolledAt, hasNew: newMessages.length > 0 };
-    })
+    }
   );
 
   for (const { thread, previousPolledAt, hasNew } of checked) {
@@ -763,25 +796,28 @@ export async function runPollAllLoop(intervalMs: number): Promise<void> {
     try {
       const deals = await listAllDeals();
       const active = deals.filter((d) => d.status === "NEGOTIATING" || d.status === "WON");
-      // Deals are independent (their own thread/transcript rows; the two
-      // ML models are shared in-memory singletons, so concurrent access is
-      // already safe), so poll every active deal at once instead of one
-      // deal fully finishing before the next even starts — with dozens of
-      // active deals this was the other half of the latency the sequential
-      // version added on top of the per-thread cost fixed in pollDealOnce.
-      // Each deal's failure is caught individually so one bad deal can't
-      // block the rest of the batch from being polled this cycle.
-      const results = await Promise.all(
-        active.map(async (d) => {
-          try {
-            return await pollDealOnce(d.id);
-          } catch (err) {
-            console.error(`[poll-all] error polling deal ${d.id}:`, err);
-            return { threadsWithActivity: 0 };
-          }
-        })
-      );
-      const totalActivity = results.reduce((sum, r) => sum + r.threadsWithActivity, 0);
+      // Deliberately sequential across deals, unlike the within-deal thread
+      // checks in pollDealOnce/pollAcceptedThreads: those are already
+      // bounded to GMAIL_CONCURRENCY_LIMIT concurrent Gmail calls, and
+      // parallelizing across deals ON TOP of that would multiply the
+      // concurrent request count by however many deals are active at once
+      // (N deals x the per-deal limit) - which is exactly what tripped
+      // Gmail's "User-rate limit exceeded" in production. Each deal is
+      // still fast on its own now (bounded parallel checks + a cached
+      // Gmail client instead of a fresh OAuth handshake per call), so
+      // processing deals one at a time keeps total in-flight Gmail
+      // requests capped at GMAIL_CONCURRENCY_LIMIT no matter how many
+      // deals are active, while still being far faster than the original
+      // fully-sequential-everywhere version.
+      let totalActivity = 0;
+      for (const d of active) {
+        try {
+          const { threadsWithActivity } = await pollDealOnce(d.id);
+          totalActivity += threadsWithActivity;
+        } catch (err) {
+          console.error(`[poll-all] error polling deal ${d.id}:`, err);
+        }
+      }
       if (totalActivity > 0) {
         console.log(`[poll-all] ${totalActivity} thread(s) had activity across ${active.length} deal(s).`);
       }

@@ -97,192 +97,223 @@ export async function pollClientIntakeOnce(): Promise<{ handled: number }> {
   for (const message of discovered) {
     if (isLandlordSender(message.from)) continue; // owned by the negotiation poll loop
 
-    const existing = state.threads[message.threadId];
-
-    const thread = await readThread({ account: "agent", threadId: message.threadId });
-    const latest = thread[thread.length - 1];
-    if (!latest) continue;
-
-    const senderEmail = extractSenderEmail(latest.from);
-    const senderName = extractSenderName(latest.from);
-
-    // Skip our own sent messages (the initial ask, shortlist reply, etc.) surfacing back in discovery.
-    if (senderEmail === accountEmail("agent").toLowerCase()) continue;
-
-    // Already processed this thread's intake — any further message is a
-    // follow-up, not a fresh submission. Acknowledge it so nothing goes
-    // silently unanswered, but don't re-run intake or re-send outreach.
-    if (existing?.status === "processed") {
-      const clientThread = existing.dealId ? await getDealClientThread(existing.dealId) : null;
-      const pending = clientThread?.pendingPriceChange;
-
-      if (existing.dealId && pending) {
-        // The landlord asked to change an already-accepted price and
-        // we're waiting on exactly this: does the client agree or not.
-        const tone = heuristicToneLabel(latest.body);
-        const listing = loadListings().find((l) => l.id === pending.listingId);
-
-        if (tone === "agreement" && listing) {
-          await sendEmail({
-            account: "agent",
-            to: senderEmail,
-            cc: latest.cc,
-            subject: `Re: ${latest.subject}`,
-            body: `Confirmed — we'll let the landlord know ${pending.newPriceInr.toLocaleString("en-IN")}/month works.`,
-            threadId: message.threadId,
-            inReplyToMessageId: latest.messageId,
-          });
-          await sendEmail({
-            account: "agent",
-            to: listing.landlordEmail,
-            subject: `Re: ${subjectFor(listing)}`,
-            body: priceChangeConfirmedToLandlordEmail(listing, pending.newPriceInr),
-            threadId: pending.landlordThreadId,
-          });
-          await updateThread(pending.landlordThreadId, { currentOfferInr: pending.newPriceInr });
-          await clearPendingPriceChange(existing.dealId);
-        } else if (tone === "decline" && listing) {
-          await sendEmail({
-            account: "agent",
-            to: senderEmail,
-            cc: latest.cc,
-            subject: `Re: ${latest.subject}`,
-            body: `Understood — we'll hold at the originally agreed ${pending.previousPriceInr.toLocaleString("en-IN")}/month with the landlord.`,
-            threadId: message.threadId,
-            inReplyToMessageId: latest.messageId,
-          });
-          await sendEmail({
-            account: "agent",
-            to: listing.landlordEmail,
-            subject: `Re: ${subjectFor(listing)}`,
-            body: priceChangeRejectedToLandlordEmail(listing, pending.previousPriceInr),
-            threadId: pending.landlordThreadId,
-          });
-          await clearPendingPriceChange(existing.dealId);
-        } else {
-          // Couldn't tell yes/no from this reply — ask again rather than guess on a real price decision.
-          await sendEmail({
-            account: "agent",
-            to: senderEmail,
-            cc: latest.cc,
-            subject: `Re: ${latest.subject}`,
-            body: `Just to confirm — are you okay with ${pending.newPriceInr.toLocaleString("en-IN")}/month, or should we hold at the original ${pending.previousPriceInr.toLocaleString("en-IN")}/month?`,
-            threadId: message.threadId,
-            inReplyToMessageId: latest.messageId,
-          });
-        }
-        handled++;
-        continue;
-      }
-
-      const sent = await sendEmail({
-        account: "agent",
-        to: senderEmail,
-        cc: latest.cc,
-        subject: `Re: ${latest.subject}`,
-        body: clientFollowUpAckEmail(),
-        threadId: message.threadId,
-        inReplyToMessageId: latest.messageId,
-      });
-      if (existing.dealId) await updateLastClientMessageId(existing.dealId, sent.messageId);
-      handled++;
-      continue;
+    // Everything below this point is wrapped so one message's failure
+    // (a transient Gmail error, a rate limit) can never discard the whole
+    // batch's progress. Before this fix, state.threads mutations only
+    // reached the DB via the single saveState() call after the entire
+    // loop finished — if a LATER message in the same batch threw, the
+    // exception propagated out of pollClientIntakeOnce entirely, and that
+    // final saveState() never ran. Confirmed live: a deal got created and
+    // its shortlist/outreach partially ran, but the thread was never
+    // marked "processed" because a later step in the same cycle threw, so
+    // lastPolledAt never advanced either - the same message got
+    // rediscovered next cycle, found the deal already existed, and sent a
+    // generic "already in progress" ack instead of ever delivering the
+    // real shortlist. Saving state after every message (not just once at
+    // the end) means an earlier message's real, already-sent work is
+    // never silently lost to a later one's failure.
+    try {
+      if (await processIntakeMessage(state, message)) handled++;
+    } catch (err) {
+      console.error(`[client-intake] error processing thread ${message.threadId}:`, err);
+    } finally {
+      await saveState(state);
     }
-
-    const parsed = parseClientIntake(latest.body, DEFAULT_FALLBACK_AREA);
-
-    if (!parsed.profile) {
-      // Cold "I'm interested" messages, questions, anything we can't turn
-      // into a profile yet — always reply asking for what's missing,
-      // never go silent. Covers both the very first message on a new
-      // thread and a repeat reply that still didn't include everything.
-      const sent = await sendEmail({
-        account: "agent",
-        to: senderEmail,
-        cc: latest.cc,
-        subject: `Re: ${latest.subject}`,
-        body: clientRequirementsPromptEmail(parsed.missingFields),
-        threadId: message.threadId,
-        inReplyToMessageId: latest.messageId,
-      });
-      if (existing?.dealId) await updateLastClientMessageId(existing.dealId, sent.messageId);
-      state.threads[message.threadId] = { status: "awaiting_requirements" };
-      handled++;
-      continue;
-    }
-
-    const client = await getOrCreateClientProfile(senderEmail, senderName);
-
-    // One active deal per client at a time — a second inbound thread from
-    // the same person (a duplicate email, a "did you get this" resend)
-    // must never spin up a second parallel set of landlord threads.
-    const existingDeals = await listDealsByUser(client.id);
-    const activeDeal = existingDeals.find((d) => d.status === "SHORTLISTED" || d.status === "NEGOTIATING");
-    if (activeDeal) {
-      const sent = await sendEmail({
-        account: "agent",
-        to: senderEmail,
-        cc: latest.cc,
-        subject: `Re: ${latest.subject}`,
-        body: clientFollowUpAckEmail(),
-        threadId: message.threadId,
-        inReplyToMessageId: latest.messageId,
-      });
-      await updateLastClientMessageId(activeDeal.id, sent.messageId);
-      state.threads[message.threadId] = { status: "processed", dealId: activeDeal.id };
-      handled++;
-      continue;
-    }
-
-    const search = await createCompanyProfile({
-      userId: client.id,
-      label: `Client intake — ${senderEmail}`,
-      profile: parsed.profile,
-    });
-    const deal = await createDeal(search.id);
-
-    const scored = scoreListing(parsed.profile).slice(0, SHORTLIST_SIZE);
-
-    const replyBody = clientShortlistEmail({
-      profile: parsed.profile,
-      shortlist: scored.map((s) => ({
-        listing: s.listing,
-        totalScore: s.result.totalScore,
-        reasoning: s.result.reasoning,
-      })),
-    });
-
-    const sentReply = await sendEmail({
-      account: "agent",
-      to: senderEmail,
-      cc: latest.cc,
-      subject: `Re: ${latest.subject}`,
-      body: replyBody,
-      threadId: message.threadId,
-      inReplyToMessageId: latest.messageId,
-    });
-
-    // From here on, every client-facing email for this deal (win/loss
-    // outcome, more follow-ups) replies into this exact same thread.
-    await recordDealClientThread(deal.id, {
-      threadId: message.threadId,
-      lastMessageId: sentReply.messageId,
-      clientEmail: senderEmail,
-      cc: latest.cc,
-    });
-
-    await startOutreach(
-      deal.id,
-      scored.map((s) => s.listing.id)
-    );
-
-    state.threads[message.threadId] = { status: "processed", dealId: deal.id };
-    handled++;
   }
 
   state.lastPolledAt = nowTimestamp - POLL_SAFETY_BUFFER_MS;
   await saveState(state);
   return { handled };
+}
+
+async function processIntakeMessage(
+  state: IntakeState,
+  message: Awaited<ReturnType<typeof checkInbox>>[number]
+): Promise<boolean> {
+  const existing = state.threads[message.threadId];
+
+  const thread = await readThread({ account: "agent", threadId: message.threadId });
+  const latest = thread[thread.length - 1];
+  if (!latest) return false;
+
+  const senderEmail = extractSenderEmail(latest.from);
+  const senderName = extractSenderName(latest.from);
+
+  // Skip our own sent messages (the initial ask, shortlist reply, etc.) surfacing back in discovery.
+  if (senderEmail === accountEmail("agent").toLowerCase()) return false;
+
+  // Already processed this thread's intake — any further message is a
+  // follow-up, not a fresh submission. Acknowledge it so nothing goes
+  // silently unanswered, but don't re-run intake or re-send outreach.
+  if (existing?.status === "processed") {
+    const clientThread = existing.dealId ? await getDealClientThread(existing.dealId) : null;
+    const pending = clientThread?.pendingPriceChange;
+
+    if (existing.dealId && pending) {
+      // The landlord asked to change an already-accepted price and
+      // we're waiting on exactly this: does the client agree or not.
+      const tone = heuristicToneLabel(latest.body);
+      const listing = loadListings().find((l) => l.id === pending.listingId);
+
+      if (tone === "agreement" && listing) {
+        await sendEmail({
+          account: "agent",
+          to: senderEmail,
+          cc: latest.cc,
+          subject: `Re: ${latest.subject}`,
+          body: `Confirmed — we'll let the landlord know ${pending.newPriceInr.toLocaleString("en-IN")}/month works.`,
+          threadId: message.threadId,
+          inReplyToMessageId: latest.messageId,
+        });
+        await sendEmail({
+          account: "agent",
+          to: listing.landlordEmail,
+          subject: `Re: ${subjectFor(listing)}`,
+          body: priceChangeConfirmedToLandlordEmail(listing, pending.newPriceInr),
+          threadId: pending.landlordThreadId,
+        });
+        await updateThread(pending.landlordThreadId, { currentOfferInr: pending.newPriceInr });
+        await clearPendingPriceChange(existing.dealId);
+      } else if (tone === "decline" && listing) {
+        await sendEmail({
+          account: "agent",
+          to: senderEmail,
+          cc: latest.cc,
+          subject: `Re: ${latest.subject}`,
+          body: `Understood — we'll hold at the originally agreed ${pending.previousPriceInr.toLocaleString("en-IN")}/month with the landlord.`,
+          threadId: message.threadId,
+          inReplyToMessageId: latest.messageId,
+        });
+        await sendEmail({
+          account: "agent",
+          to: listing.landlordEmail,
+          subject: `Re: ${subjectFor(listing)}`,
+          body: priceChangeRejectedToLandlordEmail(listing, pending.previousPriceInr),
+          threadId: pending.landlordThreadId,
+        });
+        await clearPendingPriceChange(existing.dealId);
+      } else {
+        // Couldn't tell yes/no from this reply — ask again rather than guess on a real price decision.
+        await sendEmail({
+          account: "agent",
+          to: senderEmail,
+          cc: latest.cc,
+          subject: `Re: ${latest.subject}`,
+          body: `Just to confirm — are you okay with ${pending.newPriceInr.toLocaleString("en-IN")}/month, or should we hold at the original ${pending.previousPriceInr.toLocaleString("en-IN")}/month?`,
+          threadId: message.threadId,
+          inReplyToMessageId: latest.messageId,
+        });
+      }
+      return true;
+    }
+
+    const sent = await sendEmail({
+      account: "agent",
+      to: senderEmail,
+      cc: latest.cc,
+      subject: `Re: ${latest.subject}`,
+      body: clientFollowUpAckEmail(),
+      threadId: message.threadId,
+      inReplyToMessageId: latest.messageId,
+    });
+    if (existing.dealId) await updateLastClientMessageId(existing.dealId, sent.messageId);
+    return true;
+  }
+
+  const parsed = parseClientIntake(latest.body, DEFAULT_FALLBACK_AREA);
+
+  if (!parsed.profile) {
+    // Cold "I'm interested" messages, questions, anything we can't turn
+    // into a profile yet — always reply asking for what's missing,
+    // never go silent. Covers both the very first message on a new
+    // thread and a repeat reply that still didn't include everything.
+    const sent = await sendEmail({
+      account: "agent",
+      to: senderEmail,
+      cc: latest.cc,
+      subject: `Re: ${latest.subject}`,
+      body: clientRequirementsPromptEmail(parsed.missingFields),
+      threadId: message.threadId,
+      inReplyToMessageId: latest.messageId,
+    });
+    if (existing?.dealId) await updateLastClientMessageId(existing.dealId, sent.messageId);
+    state.threads[message.threadId] = { status: "awaiting_requirements" };
+    return true;
+  }
+
+  const client = await getOrCreateClientProfile(senderEmail, senderName);
+
+  // One active deal per client at a time — a second inbound thread from
+  // the same person (a duplicate email, a "did you get this" resend)
+  // must never spin up a second parallel set of landlord threads.
+  const existingDeals = await listDealsByUser(client.id);
+  const activeDeal = existingDeals.find((d) => d.status === "SHORTLISTED" || d.status === "NEGOTIATING");
+  if (activeDeal) {
+    const sent = await sendEmail({
+      account: "agent",
+      to: senderEmail,
+      cc: latest.cc,
+      subject: `Re: ${latest.subject}`,
+      body: clientFollowUpAckEmail(),
+      threadId: message.threadId,
+      inReplyToMessageId: latest.messageId,
+    });
+    await updateLastClientMessageId(activeDeal.id, sent.messageId);
+    state.threads[message.threadId] = { status: "processed", dealId: activeDeal.id };
+    return true;
+  }
+
+  const search = await createCompanyProfile({
+    userId: client.id,
+    label: `Client intake — ${senderEmail}`,
+    profile: parsed.profile,
+  });
+  const deal = await createDeal(search.id);
+
+  // Record the profile/deal <-> thread link BEFORE anything else that can
+  // fail (scoring, the shortlist email, outreach) — otherwise a failure in
+  // one of those steps leaves the deal created but with no way to resume
+  // into it: the next attempt at this same message finds no state.threads
+  // entry, treats it as fresh, and duplicates the CompanyProfile/Deal
+  // instead of continuing the one already made.
+  state.threads[message.threadId] = { status: "processed", dealId: deal.id };
+
+  const scored = scoreListing(parsed.profile).slice(0, SHORTLIST_SIZE);
+
+  const replyBody = clientShortlistEmail({
+    profile: parsed.profile,
+    shortlist: scored.map((s) => ({
+      listing: s.listing,
+      totalScore: s.result.totalScore,
+      reasoning: s.result.reasoning,
+    })),
+  });
+
+  const sentReply = await sendEmail({
+    account: "agent",
+    to: senderEmail,
+    cc: latest.cc,
+    subject: `Re: ${latest.subject}`,
+    body: replyBody,
+    threadId: message.threadId,
+    inReplyToMessageId: latest.messageId,
+  });
+
+  // From here on, every client-facing email for this deal (win/loss
+  // outcome, more follow-ups) replies into this exact same thread.
+  await recordDealClientThread(deal.id, {
+    threadId: message.threadId,
+    lastMessageId: sentReply.messageId,
+    clientEmail: senderEmail,
+    cc: latest.cc,
+  });
+
+  await startOutreach(
+    deal.id,
+    scored.map((s) => s.listing.id)
+  );
+
+  return true;
 }
 
 /** Runs pollClientIntakeOnce on an interval, for a standalone `npm run client-intake` process. */
