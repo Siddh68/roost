@@ -21,18 +21,29 @@ import type { ToneLabel } from "../ml/trainingData.js";
  */
 export function extractPriceInr(text: string): number | null {
   const patterns = [
-    /(?:₹|Rs\.?|INR|rupees)\s*([\d,]+(?:\.\d+)?)\s*(lakh|lacs?|l)?/i,
-    /([\d,]+(?:\.\d+)?)\s*(lakh|lacs?|l)?\s*(?:per\s*month|\/\s*month|pm\b|monthly|rupees)/i,
-    /\b([\d,]+(?:\.\d+)?)\s*(lakh|lacs?)\b/i,
-    /\b(\d{1,2}(?:,\d{2})+,\d{3})\b/,
+    /(?:₹|Rs\.?|INR|rupees)\s*([\d,]+(?:\.\d+)?)\s*(lakh|lacs?|l)?/gi,
+    /([\d,]+(?:\.\d+)?)\s*(lakh|lacs?|l)?\s*(?:per\s*month|\/\s*month|pm\b|monthly|rupees)/gi,
+    /\b([\d,]+(?:\.\d+)?)\s*(lakh|lacs?)\b/gi,
+    /\b(\d{1,2}(?:,\d{2})+,\d{3})\b/g,
   ];
   for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (!match) continue;
-    let num = parseFloat(match[1].replace(/,/g, ""));
-    if (isNaN(num)) continue;
-    if (match[2]) num *= 100000; // lakh -> absolute rupees
-    if (num > 1000) return Math.round(num); // filter out unrelated small numbers (seat counts, floors, etc.)
+    // Take the LAST valid match for this pattern, not the first. A real
+    // negotiation reply very often restates our old number before stating
+    // their actual one ("₹2,50,000 would not be possible for us but we can
+    // offer at ₹4,67,850") — confirmed live: extracting the first price
+    // pulled out OUR OWN rejected offer, which then trivially matched our
+    // own last offer and got read as an acceptance, when the landlord was
+    // actually countering at nearly double that. Whatever number is stated
+    // last is the live, current position; anything earlier in the same
+    // message is being referenced, not proposed.
+    let lastValid: number | null = null;
+    for (const match of text.matchAll(pattern)) {
+      let num = parseFloat(match[1].replace(/,/g, ""));
+      if (isNaN(num)) continue;
+      if (match[2]) num *= 100000; // lakh -> absolute rupees
+      if (num > 1000) lastValid = Math.round(num); // filter out unrelated small numbers (seat counts, floors, etc.)
+    }
+    if (lastValid != null) return lastValid;
   }
   return null;
 }

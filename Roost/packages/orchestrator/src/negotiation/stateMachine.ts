@@ -310,6 +310,19 @@ export async function pollAcceptedThreads(dealId: string): Promise<number> {
       const allMessages = await readThread({ account: "agent", threadId: thread.id });
       const latest = allMessages[allMessages.length - 1];
 
+      // Same guard as processThreadReply, missing here — confirmed live as
+      // a real self-reply loop: once this thread's own reply becomes the
+      // thread's latest message, a later cycle whose hasNew fired for an
+      // unrelated reason (the buffer window, another genuinely new message)
+      // grabbed THIS function's own prior reply as "the" message to react
+      // to and sent yet another "post_acceptance_ack" — repeating for
+      // several cycles in a row in production. Bailing out here whenever
+      // the latest message is our own means only a real landlord message
+      // ever drives a response.
+      if (latest.from.toLowerCase().includes(accountEmail("agent").toLowerCase())) {
+        continue;
+      }
+
       await appendTranscript({
         dealId,
         threadId: thread.id,
