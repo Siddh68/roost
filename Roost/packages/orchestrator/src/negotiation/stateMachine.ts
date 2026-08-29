@@ -243,8 +243,16 @@ export async function pollDealOnce(dealId: string): Promise<{ threadsWithActivit
   );
   for (const { thread, hasNew } of checked) {
     if (!hasNew) continue;
-    const didAct = await processThreadReply(deal, thread);
-    if (didAct) threadsWithActivity++;
+    // Only advance this thread's poll cursor AFTER processThreadReply
+    // actually succeeds — see checkThreadForNewMessage for why doing it any
+    // earlier permanently loses a message the moment this throws.
+    try {
+      const didAct = await processThreadReply(deal, thread);
+      if (didAct) threadsWithActivity++;
+      await updateThread(thread.id, { lastPolledAt: Date.now() - POLL_SAFETY_BUFFER_MS });
+    } catch (err) {
+      console.error(`[poll] error processing thread ${thread.id} for deal ${dealId}:`, err);
+    }
   }
 
   const statusBefore = deal.status;
@@ -282,104 +290,118 @@ export async function pollAcceptedThreads(dealId: string): Promise<number> {
         threadIds: [thread.id],
         sinceTimestamp: previousPolledAt,
       });
-      await updateThread(thread.id, { lastPolledAt: Date.now() - POLL_SAFETY_BUFFER_MS });
-      return { thread, previousPolledAt, hasNew: newMessages.length > 0 };
+      const hasNew = newMessages.length > 0;
+      // Same fix as checkThreadForNewMessage: only advance the cursor here
+      // when there's nothing to lose. When hasNew is true, this is left
+      // unadvanced until the reply below actually sends successfully — a
+      // transient failure otherwise loses the message forever.
+      if (!hasNew) {
+        await updateThread(thread.id, { lastPolledAt: Date.now() - POLL_SAFETY_BUFFER_MS });
+      }
+      return { thread, previousPolledAt, hasNew };
     }
   );
 
   for (const { thread, previousPolledAt, hasNew } of checked) {
     if (!hasNew) continue;
 
-    const listing = getListingOrThrow(thread.listingId);
-    const allMessages = await readThread({ account: "agent", threadId: thread.id });
-    const latest = allMessages[allMessages.length - 1];
+    try {
+      const listing = getListingOrThrow(thread.listingId);
+      const allMessages = await readThread({ account: "agent", threadId: thread.id });
+      const latest = allMessages[allMessages.length - 1];
 
-    await appendTranscript({
-      dealId,
-      threadId: thread.id,
-      type: "reply_received",
-      payload: { from: latest.from, snippet: latest.body.slice(0, 160) },
-    });
+      await appendTranscript({
+        dealId,
+        threadId: thread.id,
+        type: "reply_received",
+        payload: { from: latest.from, snippet: latest.body.slice(0, 160) },
+      });
 
-    const deal = await getDeal(dealId);
-    // A price can be stated in one message and then followed by something
-    // short and price-free ("done", "ok", "let me know") that would
-    // otherwise bury it — scan every genuinely new incoming message this
-    // cycle (not just the last one) for the most recent price mention.
-    const agentEmail = accountEmail("agent").toLowerCase();
-    const newIncoming = allMessages.filter(
-      (m) => m.date > previousPolledAt && !m.from.toLowerCase().includes(agentEmail)
-    );
-    let revisedPrice: number | null = null;
-    for (let i = newIncoming.length - 1; i >= 0; i--) {
-      revisedPrice = extractPriceInr(newIncoming[i].body);
-      if (revisedPrice != null) break;
-    }
-    const priceChanged = revisedPrice != null && revisedPrice !== thread.currentOfferInr;
+      const deal = await getDeal(dealId);
+      // A price can be stated in one message and then followed by something
+      // short and price-free ("done", "ok", "let me know") that would
+      // otherwise bury it — scan every genuinely new incoming message this
+      // cycle (not just the last one) for the most recent price mention.
+      const agentEmail = accountEmail("agent").toLowerCase();
+      const newIncoming = allMessages.filter(
+        (m) => m.date > previousPolledAt && !m.from.toLowerCase().includes(agentEmail)
+      );
+      let revisedPrice: number | null = null;
+      for (let i = newIncoming.length - 1; i >= 0; i--) {
+        revisedPrice = extractPriceInr(newIncoming[i].body);
+        if (revisedPrice != null) break;
+      }
+      const priceChanged = revisedPrice != null && revisedPrice !== thread.currentOfferInr;
 
-    let action: string;
-    let body: string;
+      let action: string;
+      let body: string;
 
-    if (priceChanged && deal && revisedPrice! > deal.companyProfile.budgetInr) {
-      // Hard ceiling — never crossed, no client check needed, decided on the spot.
-      action = "price_change_over_budget";
-      body = priceChangeOverBudgetEmail({ listing, previousPriceInr: thread.currentOfferInr });
-    } else if (priceChanged && deal) {
-      const clientThread = await getDealClientThread(dealId);
-      if (clientThread) {
-        // Within budget but a real change from what was agreed — the
-        // client already got a "deal reached" email at the old number,
-        // so we ask before silently re-confirming at a different one.
-        await sendEmail({
-          account: "agent",
-          to: clientThread.clientEmail,
-          cc: clientThread.cc,
-          subject: "Landlord wants to revise the price",
-          body: priceChangeConfirmationToClientEmail({
-            listing,
+      if (priceChanged && deal && revisedPrice! > deal.companyProfile.budgetInr) {
+        // Hard ceiling — never crossed, no client check needed, decided on the spot.
+        action = "price_change_over_budget";
+        body = priceChangeOverBudgetEmail({ listing, previousPriceInr: thread.currentOfferInr });
+      } else if (priceChanged && deal) {
+        const clientThread = await getDealClientThread(dealId);
+        if (clientThread) {
+          // Within budget but a real change from what was agreed — the
+          // client already got a "deal reached" email at the old number,
+          // so we ask before silently re-confirming at a different one.
+          await sendEmail({
+            account: "agent",
+            to: clientThread.clientEmail,
+            cc: clientThread.cc,
+            subject: "Landlord wants to revise the price",
+            body: priceChangeConfirmationToClientEmail({
+              listing,
+              newPriceInr: revisedPrice!,
+              previousPriceInr: thread.currentOfferInr,
+            }),
+            threadId: clientThread.threadId,
+            inReplyToMessageId: clientThread.lastMessageId,
+          });
+          await setPendingPriceChange(dealId, {
+            landlordThreadId: thread.id,
+            listingId: thread.listingId,
             newPriceInr: revisedPrice!,
             previousPriceInr: thread.currentOfferInr,
-          }),
-          threadId: clientThread.threadId,
-          inReplyToMessageId: clientThread.lastMessageId,
-        });
-        await setPendingPriceChange(dealId, {
-          landlordThreadId: thread.id,
-          listingId: thread.listingId,
-          newPriceInr: revisedPrice!,
-          previousPriceInr: thread.currentOfferInr,
-        });
-        action = "price_change_holding";
-        body = priceChangeHoldingReplyEmail(listing);
+          });
+          action = "price_change_holding";
+          body = priceChangeHoldingReplyEmail(listing);
+        } else {
+          // No registered client thread (e.g. a CLI/dashboard-created deal)
+          // to ask — fall back to the safe generic ack rather than
+          // unilaterally accepting a different price with no one to confirm with.
+          action = "post_acceptance_ack";
+          body = postAcceptanceAckEmail(listing);
+        }
       } else {
-        // No registered client thread (e.g. a CLI/dashboard-created deal)
-        // to ask — fall back to the safe generic ack rather than
-        // unilaterally accepting a different price with no one to confirm with.
         action = "post_acceptance_ack";
         body = postAcceptanceAckEmail(listing);
       }
-    } else {
-      action = "post_acceptance_ack";
-      body = postAcceptanceAckEmail(listing);
+
+      const sent = await sendEmail({
+        account: "agent",
+        to: thread.landlordEmail,
+        subject: `Re: ${subjectFor(listing)}`,
+        body,
+        threadId: thread.id,
+        inReplyToMessageId: latest.messageId,
+      });
+      await updateThread(thread.id, {
+        lastMessageId: sent.messageId,
+        lastPolledAt: Date.now() - POLL_SAFETY_BUFFER_MS,
+      });
+
+      await appendTranscript({
+        dealId,
+        threadId: thread.id,
+        type: "response_sent",
+        payload: { action, body },
+      });
+      handled++;
+    } catch (err) {
+      console.error(`[poll] error processing accepted thread ${thread.id} for deal ${dealId}:`, err);
     }
-
-    const sent = await sendEmail({
-      account: "agent",
-      to: thread.landlordEmail,
-      subject: `Re: ${subjectFor(listing)}`,
-      body,
-      threadId: thread.id,
-      inReplyToMessageId: latest.messageId,
-    });
-    await updateThread(thread.id, { lastMessageId: sent.messageId });
-
-    await appendTranscript({
-      dealId,
-      threadId: thread.id,
-      type: "response_sent",
-      payload: { action, body },
-    });
-    handled++;
   }
 
   return handled;
@@ -445,8 +467,22 @@ async function checkThreadForNewMessage(
     threadIds: [thread.id],
     sinceTimestamp: thread.lastPolledAt,
   });
-  await updateThread(thread.id, { lastPolledAt: Date.now() - POLL_SAFETY_BUFFER_MS });
-  return { thread, hasNew: newMessages.length > 0 };
+  const hasNew = newMessages.length > 0;
+  // Only safe to advance the cursor here when there's nothing to lose.
+  // Advancing it unconditionally — before processThreadReply (called
+  // separately, sequentially, right after this) has actually succeeded —
+  // meant a transient failure in that later step permanently lost the
+  // message: the cursor had already moved past it, so checkInbox's
+  // sinceTimestamp filter would never surface it again. Confirmed live: a
+  // real landlord counter-offer sat unanswered for 27+ minutes with the
+  // poll loop actively running every cycle the whole time, because this
+  // exact line had already advanced lastPolledAt on the very first check.
+  // The caller now advances it itself, only once processThreadReply
+  // actually succeeds.
+  if (!hasNew) {
+    await updateThread(thread.id, { lastPolledAt: Date.now() - POLL_SAFETY_BUFFER_MS });
+  }
+  return { thread, hasNew };
 }
 
 /** The sequential half: only called once checkThreadForNewMessage confirms there's something to react to. */
