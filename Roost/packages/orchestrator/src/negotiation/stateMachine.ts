@@ -99,6 +99,16 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
 // already-handled messages/threads are safely no-ops on a re-check.
 const POLL_SAFETY_BUFFER_MS = 60_000;
 
+// A WON deal's accepted thread is polled forever by design, to catch lease
+// logistics follow-up emails — but a real conversation almost always either
+// gets a prompt follow-up or goes quiet for good within a day or so. Every
+// deal that resolves stays in the poll set permanently otherwise, and over
+// enough accumulated deals that becomes real, unbounded Gmail traffic for
+// negotiations that finished days ago and will never hear from again. Deals
+// (and threads) older than this stop being checked at all rather than
+// consuming a real Gmail call every cycle indefinitely.
+const ACCEPTED_FOLLOWUP_WINDOW_MS = Number(process.env.ACCEPTED_FOLLOWUP_WINDOW_MS ?? 24 * 60 * 60 * 1000);
+
 let concessionModel: ConcessionModel | null = null;
 async function getConcessionModel(): Promise<ConcessionModel> {
   if (!concessionModel) {
@@ -273,7 +283,10 @@ export async function pollDealOnce(dealId: string): Promise<{ threadsWithActivit
 /** Checks every "accepted" thread on a deal for new landlord messages and acknowledges them — keeps the conversation responsive after terms are locked instead of going silent. */
 export async function pollAcceptedThreads(dealId: string): Promise<number> {
   const threads = await getThreadsByDeal(dealId);
-  const accepted = threads.filter((t) => t.status === "accepted");
+  const now = Date.now();
+  const accepted = threads.filter(
+    (t) => t.status === "accepted" && now - t.createdAt < ACCEPTED_FOLLOWUP_WINDOW_MS
+  );
   let handled = 0;
 
   // Same split as checkThreadForNewMessage/processThreadReply above: the
@@ -892,7 +905,16 @@ export async function runPollAllLoop(intervalMs: number): Promise<void> {
   for (;;) {
     try {
       const deals = await listAllDeals();
-      const active = deals.filter((d) => d.status === "NEGOTIATING" || d.status === "WON");
+      const now = Date.now();
+      // A WON deal past ACCEPTED_FOLLOWUP_WINDOW_MS has no active threads
+      // left to check (pollAcceptedThreads already skips them too) — this
+      // just skips the deal entirely instead of still running pollDealOnce
+      // for it every cycle only to find nothing to do.
+      const active = deals.filter(
+        (d) =>
+          d.status === "NEGOTIATING" ||
+          (d.status === "WON" && now - d.createdAt < ACCEPTED_FOLLOWUP_WINDOW_MS)
+      );
       // Deliberately sequential across deals, unlike the within-deal thread
       // checks in pollDealOnce/pollAcceptedThreads: those are already
       // bounded to GMAIL_CONCURRENCY_LIMIT concurrent Gmail calls, and
