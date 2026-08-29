@@ -59,9 +59,11 @@ import {
 } from "./emailTemplates.js";
 import { extractPriceInr } from "./ruleBasedNlu.js";
 import { getDealClientThread, setPendingPriceChange, updateLastClientMessageId } from "../db/clientThreadRegistry.js";
-import { loadAgentState, saveAgentState } from "../db/agentState.js";
+import { loadAgentState, saveAgentState, updateAgentState } from "../db/agentState.js";
+import { randomUUID } from "node:crypto";
 
 const CONCESSION_MODEL_DB_KEY = "concessionModel";
+const PENDING_OUTREACH_DB_KEY = "pendingOutreach";
 
 // Gmail enforces a per-user rate limit on top of the daily quota — bursting
 // every thread's/deal's check as one unbounded Promise.all (the previous
@@ -216,6 +218,64 @@ export async function startOutreach(dealId: string, listingIds: string[]): Promi
     "We've started negotiating on your shortlist",
     clientOutreachStartedEmail(listingIds.length)
   );
+}
+
+interface PendingOutreachRequest {
+  id: string;
+  dealId: string;
+  listingIds: string[];
+  requestedAt: number;
+}
+
+/**
+ * Called from the web app (Vercel) when a user clicks "Start negotiation".
+ * Vercel's serverless functions are a separate, short-lived runtime from
+ * this always-on agent process — calling startOutreach (real Gmail sends)
+ * directly from there means every click is an uncoordinated burst against
+ * the same shared Gmail quota this process's own loops are managing,
+ * without any of this process's warmed-up client cache or rate-limit
+ * cooldown state (both live only in this process's memory and can't be
+ * seen by a separate Vercel invocation). Confirmed live as a real
+ * contributor to the account's rate-limit trouble. This only ever writes
+ * a lightweight, Gmail-free DB record via the concurrency-safe
+ * updateAgentState (multiple simultaneous clicks are safe); the agent's
+ * own poll loop — which already owns every other real Gmail send — drains
+ * and actually sends these on its next cycle.
+ */
+export async function requestOutreach(dealId: string, listingIds: string[]): Promise<void> {
+  await updateAgentState<PendingOutreachRequest[]>(PENDING_OUTREACH_DB_KEY, (current) => [
+    ...(current ?? []),
+    { id: randomUUID(), dealId, listingIds, requestedAt: Date.now() },
+  ]);
+}
+
+/** Drains and actually sends every queued outreach request. Returns how many succeeded. */
+export async function drainPendingOutreach(): Promise<number> {
+  const pending = await updateAgentState<PendingOutreachRequest[]>(PENDING_OUTREACH_DB_KEY, () => []);
+  if (!pending || pending.length === 0) return 0;
+
+  const failed: PendingOutreachRequest[] = [];
+  for (const req of pending) {
+    try {
+      await startOutreach(req.dealId, req.listingIds);
+    } catch (err) {
+      console.error(`[outreach-queue] failed to send outreach for deal ${req.dealId}:`, err);
+      failed.push(req);
+    }
+  }
+
+  if (failed.length > 0) {
+    // Re-queue failures instead of dropping them — the same "never silently
+    // lose a request to a transient failure" lesson learned from the
+    // client-intake poll cursor. A rate limit or network blip gets retried
+    // next cycle instead of the click just vanishing.
+    await updateAgentState<PendingOutreachRequest[]>(PENDING_OUTREACH_DB_KEY, (current) => [
+      ...(current ?? []),
+      ...failed,
+    ]);
+  }
+
+  return pending.length - failed.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -802,6 +862,14 @@ export async function runPollAllLoop(intervalMs: number): Promise<void> {
   console.log(`Polling all active deals every ${intervalMs}ms (Ctrl+C to stop)...`);
   for (;;) {
     try {
+      // Send any outreach the web app queued (see requestOutreach) before
+      // polling — this is the only place real Gmail sends happen for the
+      // website's "Start negotiation" flow now, so a brand-new deal's
+      // status flips to NEGOTIATING in time to be picked up by the same
+      // cycle's active-deal scan below, rather than waiting a full cycle.
+      const sentCount = await drainPendingOutreach();
+      if (sentCount > 0) console.log(`[poll-all] sent ${sentCount} queued outreach request(s).`);
+
       const deals = await listAllDeals();
       const active = deals.filter((d) => d.status === "NEGOTIATING" || d.status === "WON");
       // Deliberately sequential across deals, unlike the within-deal thread
